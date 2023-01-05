@@ -8,8 +8,12 @@ extern "C" {
 #include"./SDL2-2.0.10/include/SDL_main.h"
 }
 
+
 #define SCREEN_WIDTH	480
 #define SCREEN_HEIGHT	320
+
+
+#define STRING_BUFFER_SIZE 128
 
 
 // struct used to describe 2D positions, offsets & vectors
@@ -19,13 +23,24 @@ struct Vector2
 	float y;
 };
 
-// a struct that holds all bitmaps used by sprites
-struct Bitmaps
+struct Time
 {
-	SDL_Surface* charset;
-	SDL_Surface* playerCar;
-	SDL_Surface* enemyCar;
-	SDL_Surface* civilianCar;
+	int t1, t2, frames;
+	double time;
+	double delta; 
+	double fps;
+	double fpsTimer;
+};
+
+// indexes of all bitmaps
+// last element in the enum is used to get the number of elements before it
+enum BitmapData
+{
+	BMP_CHARSET,
+	BMP_PLAYER_CAR,
+	BMP_ENEMY_CAR,
+	BMP_CIVILIAN_CAR,
+	BMP_COUNT
 };
 
 struct Input
@@ -38,50 +53,12 @@ struct Input
 };
 
 
-class GameObject
-{
-	Vector2 position = {};
-	Vector2 size = {};
-	SDL_Surface* surface;
-
-public:
-	virtual void Init()
-	{
-
-	}
-	virtual void Update(double delta, Input* input)
-	{
-
-	}
-};
-
-struct GameData
-{
-	int gameObjectArrayCapacity;
-	int gameObjectCount;
-	GameObject** gameObjects;
-
-	bool Init()
-	{
-		gameObjectArrayCapacity = 1;
-		gameObjectCount = 0;
-		gameObjects = (GameObject**)malloc(sizeof(GameObject*));
-		if (gameObjects == NULL)
-		{
-			printf("GameData.Init(): Ran out of memory!\n");
-			return false;
-		}
-		printf("GameData initialised\n");
-		return true;
-	}
-};
-
 
 
 
 
 //////////////////////////////////////////////////////////////////////////////////////
-// DRAWING
+// RENDERING
 
 // draw a text txt on surface screen, starting from the point (x, y)
 // charset is a 128x128 bitmap containing character images
@@ -158,6 +135,44 @@ void DrawRectangle(SDL_Surface* screen, int x, int y, int l, int k, Uint32 outli
 //////////////////////////////////////////////////////////////////////////////////////
 // LOADING IMAGES
 
+bool InitialiseSDL(SDL_Window** window, SDL_Renderer** renderer, SDL_Surface** screen, SDL_Texture** scrtex)
+{
+	if (SDL_Init(SDL_INIT_EVERYTHING) != 0)
+	{
+		printf("SDL_Init error: %s\n", SDL_GetError());
+		return false;
+	}
+
+	// fullscreen mode
+	int rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, window, renderer);
+	//int rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, window, renderer);
+	if (rc != 0)
+	{
+		SDL_Quit();
+		printf("SDL_CreateWindowAndRenderer error: %s\n", SDL_GetError());
+		return false;
+	}
+
+	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+	SDL_RenderSetLogicalSize(*renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
+	SDL_SetRenderDrawColor(*renderer, 0, 0, 0, 255);
+
+	SDL_SetWindowTitle(*window, "Filip Jezierski 196333");
+
+
+	*screen = SDL_CreateRGBSurface(0, SCREEN_WIDTH, SCREEN_HEIGHT, 32,
+		0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
+
+	*scrtex = SDL_CreateTexture(*renderer, SDL_PIXELFORMAT_ARGB8888,
+		SDL_TEXTUREACCESS_STREAMING,
+		SCREEN_WIDTH, SCREEN_HEIGHT);
+
+
+	SDL_ShowCursor(SDL_DISABLE);
+
+	return true;
+}
+
 // load a single sprite
 // returns true when successful
 bool LoadBitmap(SDL_Surface** surface, const char* filename)
@@ -174,19 +189,19 @@ bool LoadBitmap(SDL_Surface** surface, const char* filename)
 
 // load all sprites
 // returns true when successful
-bool LoadAllBitmaps(Bitmaps* bmps)
+bool LoadAllBitmaps(SDL_Surface** bmps)
 {
 	bool error = false;
 
-	error |= !LoadBitmap(&bmps->charset, "./sprites/cs8x8.bmp");
-	error |= !LoadBitmap(&bmps->playerCar, "./sprites/player_car.bmp");
-	error |= !LoadBitmap(&bmps->enemyCar, "./sprites/enemy_car.bmp");
-	error |= !LoadBitmap(&bmps->civilianCar, "./sprites/civilian_car.bmp");
+	error |= !LoadBitmap(&bmps[BMP_CHARSET], "./sprites/cs8x8.bmp");
+	error |= !LoadBitmap(&bmps[BMP_PLAYER_CAR], "./sprites/player_car.bmp");
+	error |= !LoadBitmap(&bmps[BMP_ENEMY_CAR], "./sprites/enemy_car.bmp");
+	error |= !LoadBitmap(&bmps[BMP_CIVILIAN_CAR], "./sprites/civilian_car.bmp");
 
 	if (error)
 		return false;
 
-	SDL_SetColorKey(bmps->charset, true, 0x000000);
+	SDL_SetColorKey(bmps[BMP_CHARSET], true, 0x000000);
 	return true;
 }
 
@@ -196,6 +211,80 @@ bool LoadAllBitmaps(Bitmaps* bmps)
 
 //////////////////////////////////////////////////////////////////////////////////////
 // MEMORY MANAGEMENT
+
+void FreeBitmaps(SDL_Surface** bmps)
+{
+	for (int i = 0; i < BMP_COUNT; i++)
+	{
+		SDL_FreeSurface(bmps[i]);
+	}
+}
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+// GAME OBJECTS
+
+struct GameData;
+
+class GameObject
+{
+public:
+	Vector2 position = {};
+	Vector2 size = {};
+	SDL_Surface* sprite;
+	
+	virtual void Init(GameData* gameData)
+	{
+		sprite = NULL;
+	}
+
+	virtual void Update(GameData* gameData, Time time, Input* input)
+	{
+
+	}
+	virtual void Draw(SDL_Surface* screen)
+	{
+		if (sprite == NULL)
+		{
+			printf("Error while drawing GameObject: sprite is NULL\n");
+			return;
+		}
+		DrawSurface(screen, sprite, position.x, position.y);
+	}
+};
+
+struct GameData
+{
+	SDL_Surface* bitmaps[BMP_COUNT];
+
+	int gameObjectArrayCapacity;
+	int gameObjectCount;
+	GameObject** gameObjects;
+
+	bool Init()
+	{
+		if (!LoadAllBitmaps(bitmaps))
+		{
+			FreeBitmaps(bitmaps);
+			return false;
+		}
+
+		gameObjectArrayCapacity = 1;
+		gameObjectCount = 0;
+		gameObjects = (GameObject**)malloc(sizeof(GameObject*));
+		if (gameObjects == NULL)
+		{
+			printf("GameData.Init(): Ran out of memory!\n");
+			return false;
+		}
+
+		printf("GameData initialised successfully\n");
+		return true;
+	}
+};
 
 void Instantiate(GameData* gameData, GameObject* gameObject)
 {
@@ -212,18 +301,34 @@ void Instantiate(GameData* gameData, GameObject* gameObject)
 	}
 
 	gameData->gameObjects[gameData->gameObjectCount - 1] = gameObject;
+	gameObject->Init(gameData);
 	printf("GameObject %d successfully instantiated\n", gameData->gameObjectCount - 1);
 }
 
-void FreeBitmaps(Bitmaps* bmps)
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+// GAME VISUALS
+
+void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 {
-	SDL_FreeSurface(bmps->charset);
-	SDL_FreeSurface(bmps->playerCar);
-	SDL_FreeSurface(bmps->enemyCar);
-	SDL_FreeSurface(bmps->civilianCar);
-	free(bmps);
+	for (int i = 0; i < gameData->gameObjectCount; i++)
+	{
+		gameData->gameObjects[i]->Draw(screen);
+	}
 }
 
+void DrawDebugInfo(SDL_Surface* screen, Time* time, SDL_Surface* charset, char* stringBuffer)
+{
+	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
+	sprintf(stringBuffer, "Elapsed time: %.1lfs, FPS: %.0lf ", time->time, time->fps);
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
+	sprintf(stringBuffer, "Esc - exit, \030 - faster, \031 - slower");
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 26, stringBuffer, charset);
+
+}
 
 
 
@@ -235,9 +340,17 @@ class Player : public GameObject
 {
 	Vector2 speed = {};
 
-	virtual void Update(double delta, Input* input) override
+	virtual void Init(GameData* gameData) override
 	{
-		
+		sprite = gameData->bitmaps[BMP_PLAYER_CAR];
+	}
+
+	virtual void Update(GameData* gameData, Time time, Input* input) override
+	{
+		if (input->up) position.y -= time.delta * 200;
+		if (input->down) position.y += time.delta * 200;
+		if (input->left) position.x -= time.delta * 200;
+		if (input->right) position.x += time.delta * 200;
 	}
 };
 
@@ -245,22 +358,22 @@ class EnemyCar : public GameObject
 {
 	Vector2 speed = {};
 
-	virtual void Update(double delta, Input* input) override
+	virtual void Update(GameData* gameData, Time time, Input* input) override
 	{
 
 	}
 };
 
-void GameInit(GameData* gameData)
+void GameStart(GameData* gameData)
 {
 	Instantiate(gameData, new Player);
 }
 
-void GameUpdate(double delta, GameData* gameData, Input* input)
+void GameUpdate(Time time, GameData* gameData, Input* input)
 {
 	for (int i = 0; i < gameData->gameObjectCount; i++)
 	{
-		gameData->gameObjects[i]->Update(delta, input);
+		gameData->gameObjects[i]->Update(gameData, time, input);
 	}
 }
 
@@ -300,62 +413,34 @@ int main(int argc, char** argv)
 {
 	printf("printf output goes here:\n");
 
-	int t1, t2, quit, frames, rc;
-	double delta, worldTime, fpsTimer, fps, distance, etiSpeed;
+	char stringBuffer[STRING_BUFFER_SIZE] = {};
+	int quit = 0;
+	Time time = {};
 	Input input = {};
 
-	Bitmaps* bitmaps = (Bitmaps*)malloc(sizeof(Bitmaps));
-	if (bitmaps == NULL)
-		return 1;
+
 
 	SDL_Event event;
-	SDL_Surface* screen;
-	SDL_Texture* scrtex;
-	SDL_Window* window;
-	SDL_Renderer* renderer;
+	SDL_Surface* screen = NULL;
+	SDL_Texture* scrtex = NULL;
+	SDL_Window* window = NULL;
+	SDL_Renderer* renderer = NULL;
+
+	if (!InitialiseSDL(&window, &renderer, &screen, &scrtex))
+		return 1;
+
+
+	int black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
+	int red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
+	int green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
+	int blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
+
+	time.t1 = SDL_GetTicks();
 
 
 	GameData gameData;
 	if (!gameData.Init())
-		return 1;
-
-
-	if (SDL_Init(SDL_INIT_EVERYTHING) != 0)
 	{
-		printf("SDL_Init error: %s\n", SDL_GetError());
-		return 1;
-	}
-
-	// fullscreen mode
-	//rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, &window, &renderer);
-	rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, &window, &renderer);
-	if (rc != 0)
-	{
-		SDL_Quit();
-		printf("SDL_CreateWindowAndRenderer error: %s\n", SDL_GetError());
-		return 1;
-	}
-
-	SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
-	SDL_RenderSetLogicalSize(renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
-	SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-
-	SDL_SetWindowTitle(window, "Szablon do zdania drugiego 2017");
-
-
-	screen = SDL_CreateRGBSurface(0, SCREEN_WIDTH, SCREEN_HEIGHT, 32,
-		0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000);
-
-	scrtex = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-		SDL_TEXTUREACCESS_STREAMING,
-		SCREEN_WIDTH, SCREEN_HEIGHT);
-
-
-	SDL_ShowCursor(SDL_DISABLE);
-	
-	if (!LoadAllBitmaps(bitmaps))
-	{
-		FreeBitmaps(bitmaps);
 		SDL_FreeSurface(screen);
 		SDL_DestroyTexture(scrtex);
 		SDL_DestroyWindow(window);
@@ -364,57 +449,37 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	char text[128];
-	int black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
-	int red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
-	int green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
-	int blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
-
-	t1 = SDL_GetTicks();
-
-	frames = 0;
-	fpsTimer = 0;
-	fps = 0;
-	quit = 0;
-	worldTime = 0;
-
-	GameInit(&gameData);
+	GameStart(&gameData);
 
 	while (!quit)
 	{
-		t2 = SDL_GetTicks();
+		time.t2 = SDL_GetTicks();
 
 		// here t2-t1 is the time in milliseconds since
 		// the last screen was drawn
 		// delta is the same time in seconds
-		delta = (t2 - t1) * 0.001;
-		t1 = t2;
+		time.delta = (time.t2 - time.t1) * 0.001;
+		time.t1 = time.t2;
 
-		worldTime += delta;
+		time.time += time.delta;
 
 		SDL_FillRect(screen, NULL, black);
 
 
-		fpsTimer += delta;
-		if (fpsTimer > 0.5)
+		time.fpsTimer += time.delta;
+		if (time.fpsTimer > 0.5)
 		{
-			fps = frames * 2;
-			frames = 0;
-			fpsTimer -= 0.5;
+			time.fps = time.frames * 2;
+			time.frames = 0;
+			time.fpsTimer -= 0.5;
 		}
 
 
-		GameUpdate(delta, &gameData, &input);
+		GameUpdate(time, &gameData, &input);
 
+		DrawGameObjects(screen, &gameData);
 
-
-		// debug info
-		//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
-		sprintf(text, "Elapsed time: %.1lfs, FPS: %.0lf ", worldTime, fps);
-		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 10, text, bitmaps->charset);
-		sprintf(text, "Esc - exit, \030 - faster, \031 - slower");
-		DrawString(screen, screen->w / 2 - strlen(text) * 8 / 2, 26, text, bitmaps->charset);
-
+		DrawDebugInfo(screen, &time, gameData.bitmaps[BMP_CHARSET], stringBuffer);
 
 
 
@@ -433,11 +498,11 @@ int main(int argc, char** argv)
 		{
 			quit = 1;
 		}
-		frames++;
+		time.frames++;
 	}
 
 	// freeing all surfaces
-	FreeBitmaps(bitmaps);
+	FreeBitmaps(gameData.bitmaps);
 	SDL_FreeSurface(screen);
 	SDL_DestroyTexture(scrtex);
 	SDL_DestroyRenderer(renderer);

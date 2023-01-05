@@ -1,7 +1,11 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (szablon2vs19.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   main.cpp
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(413,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(415,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(304,42): warning C4101: 'distance': unreferenced local variable
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(304,52): warning C4101: 'etiSpeed': unreferenced local variable
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(255,51): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(255,39): warning C4244: 'argument': conversion from 'float' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(326,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(328,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(350,1): warning C4244: '-=': conversion from 'double' to 'float', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(351,1): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(352,1): warning C4244: '-=': conversion from 'double' to 'float', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(353,1): warning C4244: '+=': conversion from 'double' to 'float', possible loss of data
   Projekt2_SpyHunter.vcxproj -> D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\Debug\Projekt2_SpyHunter.exe
