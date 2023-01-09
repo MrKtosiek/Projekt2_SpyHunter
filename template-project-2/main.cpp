@@ -16,6 +16,23 @@ extern "C" {
 #define STRING_BUFFER_SIZE 128
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////
+// GAMEPLAY CONSTANTS
+
+#define MAX_ENEMIES 16
+#define CAR_SIZE {14, 20}
+#define PLAYER_Y_POS 240
+
+// player stats
+#define PLAYER_MAX_SPEED 1000
+#define PLAYER_MAX_SPEED_SIDES 400
+#define PLAYER_ACCEL 1000
+#define PLAYER_ACCEL_SIDES 3000
+
+
+
+
 // struct used to describe 2D positions, offsets & vectors
 struct Vector2
 {
@@ -32,17 +49,6 @@ struct Time
 	double fpsTimer;
 };
 
-// indexes of all bitmaps
-// last element in the enum is used to get the number of elements before it
-enum BitmapData
-{
-	BMP_CHARSET,
-	BMP_PLAYER_CAR,
-	BMP_ENEMY_CAR,
-	BMP_CIVILIAN_CAR,
-	BMP_COUNT
-};
-
 struct Input
 {
 	bool quit;
@@ -53,6 +59,30 @@ struct Input
 };
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////
+// UTILITY
+
+// returns the closes value to num that fits inside the r1-r2 range
+float Clamp(float num, float r1, float r2)
+{
+	if (num < r1)
+		return r1;
+	if (num > r2)
+		return r2;
+	return num;
+}
+
+// Moves the value of num towards target by delta
+float MoveTowards(float num, float target, float delta)
+{
+	if (fabsf(num - target) <= delta)
+		return target;
+	if (num > target)
+		return num - delta;
+	if (num < target)
+		return num + delta;
+}
 
 
 
@@ -144,8 +174,8 @@ bool InitialiseSDL(SDL_Window** window, SDL_Renderer** renderer, SDL_Surface** s
 	}
 
 	// fullscreen mode
-	int rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, window, renderer);
-	//int rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, window, renderer);
+	//int rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, window, renderer);
+	int rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, window, renderer);
 	if (rc != 0)
 	{
 		SDL_Quit();
@@ -187,6 +217,18 @@ bool LoadBitmap(SDL_Surface** surface, const char* filename)
 	return true;
 }
 
+// indexes of all bitmaps
+// last element in the enum is used to get the number of other elements
+enum BitmapData
+{
+	BMP_CHARSET,
+	BMP_PLAYER_CAR,
+	BMP_ENEMY_CAR,
+	BMP_CIVILIAN_CAR,
+	BMP_BACKGROUND,
+	BMP_COUNT
+};
+
 // load all sprites
 // returns true when successful
 bool LoadAllBitmaps(SDL_Surface** bmps)
@@ -197,6 +239,7 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 	error |= !LoadBitmap(&bmps[BMP_PLAYER_CAR], "./sprites/player_car.bmp");
 	error |= !LoadBitmap(&bmps[BMP_ENEMY_CAR], "./sprites/enemy_car.bmp");
 	error |= !LoadBitmap(&bmps[BMP_CIVILIAN_CAR], "./sprites/civilian_car.bmp");
+	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/grass.bmp");
 
 	if (error)
 		return false;
@@ -236,15 +279,6 @@ public:
 	Vector2 size = {};
 	SDL_Surface* sprite;
 	
-	virtual void Init(GameData* gameData)
-	{
-		sprite = NULL;
-	}
-
-	virtual void Update(GameData* gameData, Time time, Input* input)
-	{
-
-	}
 	virtual void Draw(SDL_Surface* screen)
 	{
 		if (sprite == NULL)
@@ -256,108 +290,28 @@ public:
 	}
 };
 
-struct GameData
+class Player : public GameObject
 {
-	SDL_Surface* bitmaps[BMP_COUNT];
-
-	int gameObjectArrayCapacity;
-	int gameObjectCount;
-	GameObject** gameObjects;
-
-	bool Init()
-	{
-		if (!LoadAllBitmaps(bitmaps))
-		{
-			FreeBitmaps(bitmaps);
-			return false;
-		}
-
-		gameObjectArrayCapacity = 1;
-		gameObjectCount = 0;
-		gameObjects = (GameObject**)malloc(sizeof(GameObject*));
-		if (gameObjects == NULL)
-		{
-			printf("GameData.Init(): Ran out of memory!\n");
-			return false;
-		}
-
-		printf("GameData initialised successfully\n");
-		return true;
-	}
+public:
+	Vector2 speed = {};
 };
 
-void Instantiate(GameData* gameData, GameObject* gameObject)
+class Enemy : public GameObject
 {
-	gameData->gameObjectCount++;
-	if (gameData->gameObjectCount > gameData->gameObjectArrayCapacity)
-	{
-		gameData->gameObjectArrayCapacity *= 2;
-		gameData->gameObjects = (GameObject**)realloc(gameData, sizeof(GameObject*) * gameData->gameObjectArrayCapacity);
-		if (gameData->gameObjects == NULL)
-		{
-			printf("Ran out of memory while instantiating GameObject\n");
-			exit(1);
-		}
-	}
+public:
+	Vector2 speed = {};
+};
 
-	gameData->gameObjects[gameData->gameObjectCount - 1] = gameObject;
-	gameObject->Init(gameData);
-	printf("GameObject %d successfully instantiated\n", gameData->gameObjectCount - 1);
-}
-
-void Destroy(GameData* gameData, GameObject* gameObject)
+struct GameData
 {
-	gameData->gameObjectCount--;
-	if (gameData->gameObjectCount < gameData->gameObjectArrayCapacity / 2)
-	{
-		gameData->gameObjectArrayCapacity /= 2;
-		gameData->gameObjects = (GameObject**)realloc(gameData, sizeof(GameObject*) * gameData->gameObjectArrayCapacity);
-		if (gameData->gameObjects == NULL)
-		{
-			printf("Ran out of memory while destroying GameObject\n");
-			exit(1);
-		}
-	}
+	// game objects
+	Player* player;
+	int enemyCount;
+	Enemy* enemies[MAX_ENEMIES];
 
-	// if the deleted object isn't the last one in the array
-	// move the last object into it's place
-	// like this:
-	// ##D##L
-	//     / 
-	//    /  
-	// ##L## 
-	int index = &gameObject - gameData->gameObjects;
-	if (index + 2 != gameData->gameObjectCount)
-	{
-		gameData->gameObjects[index] = gameData->gameObjects[gameData->gameObjectCount];
-	}
-	delete gameObject;
-	printf("GameObject %d destroyed successfully\n", index);
-}
+	GameObject* background;
+};
 
-
-
-
-//////////////////////////////////////////////////////////////////////////////////////
-// GAME VISUALS
-
-void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
-{
-	for (int i = 0; i < gameData->gameObjectCount; i++)
-	{
-		gameData->gameObjects[i]->Draw(screen);
-	}
-}
-
-void DrawDebugInfo(SDL_Surface* screen, Time* time, SDL_Surface* charset, char* stringBuffer)
-{
-	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
-	sprintf(stringBuffer, "Elapsed time: %.1lfs, FPS: %.0lf ", time->time, time->fps);
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
-	sprintf(stringBuffer, "Esc - exit, \030 - faster, \031 - slower");
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 26, stringBuffer, charset);
-
-}
 
 
 
@@ -365,45 +319,98 @@ void DrawDebugInfo(SDL_Surface* screen, Time* time, SDL_Surface* charset, char* 
 //////////////////////////////////////////////////////////////////////////////////////
 // GAME MECHANICS
 
-class Player : public GameObject
+// accelerate & decelerate the player
+void PlayerSteering(Player* player, Time time, Input* input)
 {
-	Vector2 speed = {};
+	Vector2 steering = { 0,0 };
 
-	virtual void Init(GameData* gameData) override
+	if (input->up) steering.y--;
+	if (input->down) steering.y++;
+	if (input->left) steering.x--;
+	if (input->right) steering.x++;
+
+	player->speed.y += steering.y * time.delta * PLAYER_ACCEL;
+
+	if (steering.x == 0)
+		player->speed.x = MoveTowards(player->speed.x, 0, time.delta * PLAYER_ACCEL_SIDES);
+	else
+		player->speed.x += steering.x * time.delta * PLAYER_ACCEL_SIDES;
+
+	player->speed.x = Clamp(player->speed.x, -PLAYER_MAX_SPEED_SIDES, PLAYER_MAX_SPEED_SIDES);
+	player->speed.y = Clamp(player->speed.y, -PLAYER_MAX_SPEED, 0);
+
+	player->position.x += player->speed.x * time.delta;
+
+}
+
+void MoveBackground(GameObject* background, float playerSpeed, Time time)
+{
+	background->position.y -= playerSpeed * (float)time.delta;
+	if (background->position.y > SCREEN_HEIGHT)
+		background->position.y = 0;
+}
+
+
+
+
+
+void CreateEnemy(GameData* gameData, Vector2 pos)
+{
+	if (gameData->enemyCount >= MAX_ENEMIES)
 	{
-		sprite = gameData->bitmaps[BMP_PLAYER_CAR];
+		printf("Couldn't create a new enemy - max enemy count reached\n");
+
+		return;
 	}
 
-	virtual void Update(GameData* gameData, Time time, Input* input) override
-	{
-		if (input->up) position.y -= time.delta * 200;
-		if (input->down) position.y += time.delta * 200;
-		if (input->left) position.x -= time.delta * 200;
-		if (input->right) position.x += time.delta * 200;
-	}
-};
+	Enemy* enemy = new Enemy();
+	enemy->position = pos;
+	gameData->enemies[gameData->enemyCount] = enemy;
+	gameData->enemyCount++;
+}
 
-class EnemyCar : public GameObject
+void DeleteEnemy(GameData* gameData, Enemy* enemy)
 {
-	Vector2 speed = {};
+	gameData->enemyCount--;
 
-	virtual void Update(GameData* gameData, Time time, Input* input) override
+	// if the deleted enemy isn't the last one in the array
+	// move the last object into it's place
+	// like this:
+	// ##D##L
+	//     / 
+	//    /  
+	// ##L## 
+	int index = &enemy - gameData->enemies;
+	if (index + 2 != gameData->enemyCount)
 	{
-
+		gameData->enemies[index] = gameData->enemies[gameData->enemyCount];
 	}
-};
+	delete enemy;
 
-void GameStart(GameData* gameData)
+	printf("Enemy %d destroyed successfully\n", index);
+}
+
+
+// create all necessary GameObjects
+void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 {
-	Instantiate(gameData, new Player);
+	Player* player = new Player();
+	player->sprite = bitmaps[BMP_PLAYER_CAR];
+	player->position = {SCREEN_WIDTH / 2, PLAYER_Y_POS};
+	player->size = CAR_SIZE;
+	gameData->player = player;
+
+	GameObject* background = new GameObject();
+	background->sprite = bitmaps[BMP_BACKGROUND];
+	background->position = { SCREEN_WIDTH / 2, 0 };
+	gameData->background = background;
 }
 
 void GameUpdate(Time time, GameData* gameData, Input* input)
 {
-	for (int i = 0; i < gameData->gameObjectCount; i++)
-	{
-		gameData->gameObjects[i]->Update(gameData, time, input);
-	}
+	PlayerSteering(gameData->player, time, input);
+
+	MoveBackground(gameData->background, gameData->player->speed.y, time);
 }
 
 void UpdateInputs(Input* input, SDL_Event event)
@@ -432,6 +439,36 @@ void UpdateInputs(Input* input, SDL_Event event)
 
 
 
+
+//////////////////////////////////////////////////////////////////////////////////////
+// GAME VISUALS
+
+void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
+{
+	gameData->background->Draw(screen);
+
+	gameData->player->Draw(screen);
+
+	for (int i = 0; i < gameData->enemyCount; i++)
+	{
+		gameData->enemies[i]->Draw(screen);
+	}
+}
+
+void DrawDebugInfo(SDL_Surface* screen, Time* time, SDL_Surface* charset, char* stringBuffer)
+{
+	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
+	sprintf(stringBuffer, "Elapsed time: %.1lfs, FPS: %.0lf ", time->time, time->fps);
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
+	sprintf(stringBuffer, "Esc - exit, \030 - faster, \031 - slower");
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 26, stringBuffer, charset);
+
+}
+
+
+
+
+
 //////////////////////////////////////////////////////////////////////////////////////
 // MAIN
 
@@ -447,6 +484,7 @@ int main(int argc, char** argv)
 	Time time = {};
 	Input input = {};
 
+	SDL_Surface* bitmaps[BMP_COUNT];
 
 
 	SDL_Event event;
@@ -458,6 +496,11 @@ int main(int argc, char** argv)
 	if (!InitialiseSDL(&window, &renderer, &screen, &scrtex))
 		return 1;
 
+	if (!LoadAllBitmaps(bitmaps))
+	{
+		FreeBitmaps(bitmaps);
+		return 1;
+	}
 
 	int black = SDL_MapRGB(screen->format, 0x00, 0x00, 0x00);
 	int red = SDL_MapRGB(screen->format, 0xFF, 0x00, 0x00);
@@ -468,17 +511,8 @@ int main(int argc, char** argv)
 
 
 	GameData gameData;
-	if (!gameData.Init())
-	{
-		SDL_FreeSurface(screen);
-		SDL_DestroyTexture(scrtex);
-		SDL_DestroyWindow(window);
-		SDL_DestroyRenderer(renderer);
-		SDL_Quit();
-		return 1;
-	}
 
-	GameStart(&gameData);
+	GameStart(&gameData, bitmaps);
 
 	while (!quit)
 	{
@@ -508,7 +542,7 @@ int main(int argc, char** argv)
 
 		DrawGameObjects(screen, &gameData);
 
-		DrawDebugInfo(screen, &time, gameData.bitmaps[BMP_CHARSET], stringBuffer);
+		DrawDebugInfo(screen, &time, bitmaps[BMP_CHARSET], stringBuffer);
 
 
 
@@ -531,7 +565,7 @@ int main(int argc, char** argv)
 	}
 
 	// freeing all surfaces
-	FreeBitmaps(gameData.bitmaps);
+	FreeBitmaps(bitmaps);
 	SDL_FreeSurface(screen);
 	SDL_DestroyTexture(scrtex);
 	SDL_DestroyRenderer(renderer);
