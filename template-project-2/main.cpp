@@ -305,6 +305,35 @@ void Instantiate(GameData* gameData, GameObject* gameObject)
 	printf("GameObject %d successfully instantiated\n", gameData->gameObjectCount - 1);
 }
 
+void Destroy(GameData* gameData, GameObject* gameObject)
+{
+	gameData->gameObjectCount--;
+	if (gameData->gameObjectCount < gameData->gameObjectArrayCapacity / 2)
+	{
+		gameData->gameObjectArrayCapacity /= 2;
+		gameData->gameObjects = (GameObject**)realloc(gameData, sizeof(GameObject*) * gameData->gameObjectArrayCapacity);
+		if (gameData->gameObjects == NULL)
+		{
+			printf("Ran out of memory while destroying GameObject\n");
+			exit(1);
+		}
+	}
+
+	// if the deleted object isn't the last one in the array
+	// move the last object into it's place
+	// like this:
+	// ##D##L
+	//     / 
+	//    /  
+	// ##L## 
+	int index = &gameObject - gameData->gameObjects;
+	if (index + 2 != gameData->gameObjectCount)
+	{
+		gameData->gameObjects[index] = gameData->gameObjects[gameData->gameObjectCount];
+	}
+	delete gameObject;
+	printf("GameObject %d destroyed successfully\n", index);
+}
 
 
 
