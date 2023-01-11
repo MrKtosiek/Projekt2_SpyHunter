@@ -1,6 +1,7 @@
 #define _USE_MATH_DEFINES
 #include<math.h>
 #include<stdio.h>
+#include<stdlib.h>
 #include<string.h>
 
 extern "C" {
@@ -9,42 +10,58 @@ extern "C" {
 }
 
 
-#define SCREEN_WIDTH	480
-#define SCREEN_HEIGHT	320
+#define FULLSCREEN false
+#define SCREEN_WIDTH 480
+#define SCREEN_HEIGHT 320
 
+#define FPS_COUNTER_INTERVAL 0.1
+#define RAND_VAL_PRECISION 100
 
 #define STRING_BUFFER_SIZE 128
-
 
 
 //////////////////////////////////////////////////////////////////////////////////////
 // GAMEPLAY CONSTANTS
 
 #define MAX_ENEMIES 16
-#define CAR_SIZE {14, 20}
+#define CAR_SIZE { 14, 20 }
 #define PLAYER_Y_POS 240
+
+// value between 0 and 1
+#define COLLISION_BOUNCE 1
 
 // player stats
 #define PLAYER_MAX_SPEED 1000
+#define PLAYER_MIN_SPEED 300
 #define PLAYER_MAX_SPEED_SIDES 400
-#define PLAYER_ACCEL 1000
-#define PLAYER_ACCEL_SIDES 3000
+#define PLAYER_ACCEL 800
+#define PLAYER_ACCEL_SIDES 2000
 
+// enemy stats
+#define ENEMY_TARGET_DISTANCE 50
+#define ENEMY_MAX_SPEED 800
+#define ENEMY_MIN_SPEED 400
+#define ENEMY_MAX_SPEED_SIDES 400
+#define ENEMY_ACCEL 400
+#define ENEMY_ACCEL_SIDES 1000
 
 
 
 // struct used to describe 2D positions, offsets & vectors
 struct Vector2
 {
-	float x;
-	float y;
+	double x;
+	double y;
 };
 
 struct Time
 {
-	int t1, t2, frames;
+	long timeCounterCurrent, timeCounterPrevious;
 	double time;
-	double delta; 
+	double delta;
+
+	// these variables are used for calculating the FPS
+	int frames;
 	double fps;
 	double fpsTimer;
 };
@@ -52,10 +69,13 @@ struct Time
 struct Input
 {
 	bool quit;
+	bool pause;
+	bool newGame;
 	bool up;
 	bool down;
 	bool left;
 	bool right;
+	bool showDebug;
 };
 
 
@@ -64,7 +84,7 @@ struct Input
 // UTILITY
 
 // returns the closes value to num that fits inside the r1-r2 range
-float Clamp(float num, float r1, float r2)
+double Clamp(double num, double r1, double r2)
 {
 	if (num < r1)
 		return r1;
@@ -74,17 +94,32 @@ float Clamp(float num, float r1, float r2)
 }
 
 // Moves the value of num towards target by delta
-float MoveTowards(float num, float target, float delta)
+void MoveTowards(double* num, double target, double delta)
 {
-	if (fabsf(num - target) <= delta)
-		return target;
-	if (num > target)
-		return num - delta;
-	if (num < target)
-		return num + delta;
+	if (fabs(*num - target) <= delta)
+		*num = target;
+	if (*num > target)
+		*num -= delta;
+	if (*num < target)
+		*num += delta;
 }
 
+// returns:
+// 1 for positive numbers
+// -1 for negative numbers
+// 0 for 0
+int Sign(double num)
+{
+	if (num > 0) return 1;
+	if (num < 0) return -1;
+	return 0;
+}
 
+// returns a random value in the range 0-1
+double RandVal()
+{
+	return (double)(rand() % RAND_VAL_PRECISION) / RAND_VAL_PRECISION;
+}
 
 
 //////////////////////////////////////////////////////////////////////////////////////
@@ -173,10 +208,14 @@ bool InitialiseSDL(SDL_Window** window, SDL_Renderer** renderer, SDL_Surface** s
 		return false;
 	}
 
-	// fullscreen mode
-	//int rc = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, window, renderer);
-	int rc = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, window, renderer);
-	if (rc != 0)
+	int error = -1;
+
+	if (FULLSCREEN)
+		error = SDL_CreateWindowAndRenderer(0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP, window, renderer);
+	else
+		error = SDL_CreateWindowAndRenderer(SCREEN_WIDTH, SCREEN_HEIGHT, 0, window, renderer);
+
+	if (error != 0)
 	{
 		SDL_Quit();
 		printf("SDL_CreateWindowAndRenderer error: %s\n", SDL_GetError());
@@ -277,7 +316,7 @@ class GameObject
 public:
 	Vector2 position = {};
 	Vector2 size = {};
-	SDL_Surface* sprite;
+	SDL_Surface* sprite = NULL;
 	
 	virtual void Draw(SDL_Surface* screen)
 	{
@@ -300,16 +339,19 @@ class Enemy : public GameObject
 {
 public:
 	Vector2 speed = {};
+	int health = 0;
 };
 
 struct GameData
 {
-	// game objects
-	Player* player;
-	int enemyCount;
-	Enemy* enemies[MAX_ENEMIES];
+	int score = 0;
 
-	GameObject* background;
+	// game objects
+	Player* player = NULL;
+	int enemyCount = 0;
+	Enemy* enemies[MAX_ENEMIES] = {};
+
+	GameObject* background = NULL;
 };
 
 
@@ -318,6 +360,11 @@ struct GameData
 
 //////////////////////////////////////////////////////////////////////////////////////
 // GAME MECHANICS
+
+double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
+{
+	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
+}
 
 // accelerate & decelerate the player
 void PlayerSteering(Player* player, Time time, Input* input)
@@ -331,30 +378,88 @@ void PlayerSteering(Player* player, Time time, Input* input)
 
 	player->speed.y += steering.y * time.delta * PLAYER_ACCEL;
 
-	if (steering.x == 0)
-		player->speed.x = MoveTowards(player->speed.x, 0, time.delta * PLAYER_ACCEL_SIDES);
-	else
-		player->speed.x += steering.x * time.delta * PLAYER_ACCEL_SIDES;
+	MoveTowards(&player->speed.x, 
+		steering.x * CalculateMaxSideSpeed(-player->speed.y, PLAYER_MAX_SPEED, PLAYER_MAX_SPEED_SIDES),
+		time.delta * PLAYER_ACCEL_SIDES);
 
-	player->speed.x = Clamp(player->speed.x, -PLAYER_MAX_SPEED_SIDES, PLAYER_MAX_SPEED_SIDES);
-	player->speed.y = Clamp(player->speed.y, -PLAYER_MAX_SPEED, 0);
+	player->speed.y = Clamp(player->speed.y, -PLAYER_MAX_SPEED, -PLAYER_MIN_SPEED);
 
 	player->position.x += player->speed.x * time.delta;
 
 }
 
-void MoveBackground(GameObject* background, float playerSpeed, Time time)
+void MoveBackground(GameObject* background, double playerSpeed, Time time)
 {
-	background->position.y -= playerSpeed * (float)time.delta;
+	background->position.y -= playerSpeed * (double)time.delta;
 	if (background->position.y > SCREEN_HEIGHT)
 		background->position.y = 0;
+}
+
+void UpdateEnemy(Enemy* enemy, Player* player, Time time)
+{
+	if (fabs(enemy->position.y - player->position.y) < ENEMY_TARGET_DISTANCE)
+	{
+		// match the players speed
+		MoveTowards(&enemy->speed.y, player->speed.y - (enemy->position.y - player->position.y), time.delta * ENEMY_ACCEL);
+
+		// try to push the player off the road
+		MoveTowards(&enemy->speed.x, 
+			Sign(player->position.x - enemy->position.x) * CalculateMaxSideSpeed(-enemy->speed.y, ENEMY_MAX_SPEED, ENEMY_MAX_SPEED_SIDES), 
+			time.delta * ENEMY_ACCEL_SIDES);
+	}
+	else
+	{
+		// catch up or wait for the player
+		if (enemy->position.y < player->position.y)
+			MoveTowards(&enemy->speed.y, -ENEMY_MIN_SPEED, time.delta * ENEMY_ACCEL);
+		else
+			MoveTowards(&enemy->speed.y, -ENEMY_MAX_SPEED, time.delta * ENEMY_ACCEL);
+
+		MoveTowards(&enemy->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
+	}
+
+	enemy->speed.y = Clamp(enemy->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
+
+	enemy->position.x += enemy->speed.x * time.delta;
+	enemy->position.y += (enemy->speed.y - player->speed.y) * time.delta;
+}
+
+
+
+Vector2 CalculateOverlap(Player* player, Enemy* enemy)
+{
+	Vector2 overlap = {};
+	overlap.x = (player->size.x + enemy->size.x) * 0.5 - fabs(player->position.x - enemy->position.x);
+	overlap.y = (player->size.y + enemy->size.y) * 0.5 - fabs(player->position.y - enemy->position.y);
+	return overlap;
+}
+
+void CheckCollision(Player* player, Enemy* enemy)
+{
+	Vector2 overlap = CalculateOverlap(player, enemy);
+	if (overlap.x >= 0 && overlap.y >= 0)
+	{
+		double temp = player->speed.x * COLLISION_BOUNCE;
+		player->speed.x = enemy->speed.x * COLLISION_BOUNCE;
+		enemy->speed.x = temp;
+
+		player->position.x += (overlap.x + 1) * 0.5 * Sign(player->position.x - enemy->position.x);
+		enemy->position.x += (overlap.x + 1) * 0.5 * -Sign(player->position.x - enemy->position.x);
+	}
+}
+
+void ResolveCollisions(GameData* gameData)
+{
+	for (int i = 0; i < gameData->enemyCount; i++)
+	{
+		CheckCollision(gameData->player, gameData->enemies[i]);
+	}
 }
 
 
 
 
-
-void CreateEnemy(GameData* gameData, Vector2 pos)
+void CreateEnemy(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos)
 {
 	if (gameData->enemyCount >= MAX_ENEMIES)
 	{
@@ -365,45 +470,56 @@ void CreateEnemy(GameData* gameData, Vector2 pos)
 
 	Enemy* enemy = new Enemy();
 	enemy->position = pos;
+	enemy->sprite = bitmaps[BMP_ENEMY_CAR];
+	enemy->size = CAR_SIZE;
+	enemy->speed = { 0, -PLAYER_MAX_SPEED / 2 };
 	gameData->enemies[gameData->enemyCount] = enemy;
 	gameData->enemyCount++;
 }
 
-void DeleteEnemy(GameData* gameData, Enemy* enemy)
+void DeleteEnemy(GameData* gameData, int enemyIndex)
 {
-	gameData->enemyCount--;
-
 	// if the deleted enemy isn't the last one in the array
-	// move the last object into it's place
+	// move the last one into it's place
 	// like this:
 	// ##D##L
 	//     / 
 	//    /  
 	// ##L## 
-	int index = &enemy - gameData->enemies;
-	if (index + 2 != gameData->enemyCount)
-	{
-		gameData->enemies[index] = gameData->enemies[gameData->enemyCount];
-	}
-	delete enemy;
 
-	printf("Enemy %d destroyed successfully\n", index);
+	delete gameData->enemies[enemyIndex];
+
+	gameData->enemyCount--;
+	if (enemyIndex != gameData->enemyCount)
+	{
+		gameData->enemies[enemyIndex] = gameData->enemies[gameData->enemyCount];
+	}
+
+	printf("Enemy %d deleted successfully\n", enemyIndex);
+
 }
 
 
 // create all necessary GameObjects
 void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 {
-	Player* player = new Player();
-	player->sprite = bitmaps[BMP_PLAYER_CAR];
-	player->position = {SCREEN_WIDTH / 2, PLAYER_Y_POS};
-	player->size = CAR_SIZE;
-	gameData->player = player;
+	gameData->enemyCount = 0;
 
 	GameObject* background = new GameObject();
 	background->sprite = bitmaps[BMP_BACKGROUND];
 	background->position = { SCREEN_WIDTH / 2, 0 };
 	gameData->background = background;
+
+	Player* player = new Player();
+	player->sprite = bitmaps[BMP_PLAYER_CAR];
+	player->position = { SCREEN_WIDTH / 2, PLAYER_Y_POS };
+	player->size = CAR_SIZE;
+	gameData->player = player;
+
+	for (int i = 0; i < 20; i++)
+	{
+		CreateEnemy(gameData, bitmaps, { (double)SCREEN_WIDTH / 2 + (rand() % 100), (double)SCREEN_HEIGHT / 2 + (rand() % 100) });
+	}
 }
 
 void GameUpdate(Time time, GameData* gameData, Input* input)
@@ -411,6 +527,17 @@ void GameUpdate(Time time, GameData* gameData, Input* input)
 	PlayerSteering(gameData->player, time, input);
 
 	MoveBackground(gameData->background, gameData->player->speed.y, time);
+
+	for (int i = 0; i < gameData->enemyCount; i++)
+	{
+		UpdateEnemy(gameData->enemies[i], gameData->player, time);
+		if (gameData->enemies[i]->position.y >= 2 * SCREEN_HEIGHT)
+		{
+			DeleteEnemy(gameData, i);
+		}
+	}
+
+	ResolveCollisions(gameData);
 }
 
 void UpdateInputs(Input* input, SDL_Event event)
@@ -423,6 +550,7 @@ void UpdateInputs(Input* input, SDL_Event event)
 		else if (event.key.keysym.sym == SDLK_DOWN) input->down = true;
 		else if (event.key.keysym.sym == SDLK_LEFT) input->left = true;
 		else if (event.key.keysym.sym == SDLK_RIGHT) input->right = true;
+		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // debug info is toggled on keypress
 		break;
 	case SDL_KEYUP:
 		if (event.key.keysym.sym == SDLK_UP) input->up = false;
@@ -433,6 +561,27 @@ void UpdateInputs(Input* input, SDL_Event event)
 	case SDL_QUIT:
 		input->quit = true;
 		break;
+	}
+}
+
+
+
+void MeasureTime(Time* time)
+{
+	time->timeCounterCurrent = SDL_GetPerformanceCounter();
+	time->delta = ((double)(time->timeCounterCurrent - time->timeCounterPrevious) / (double)SDL_GetPerformanceFrequency());
+	time->timeCounterPrevious = time->timeCounterCurrent;
+
+	time->time += time->delta;
+
+
+	// measure the FPS
+	time->fpsTimer += time->delta;
+	if (time->fpsTimer > FPS_COUNTER_INTERVAL)
+	{
+		time->fps = time->frames / FPS_COUNTER_INTERVAL;
+		time->frames = 0;
+		time->fpsTimer = 0;
 	}
 }
 
@@ -455,14 +604,18 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 	}
 }
 
-void DrawDebugInfo(SDL_Surface* screen, Time* time, SDL_Surface* charset, char* stringBuffer)
+void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
 	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
-	sprintf(stringBuffer, "Elapsed time: %.1lfs, FPS: %.0lf ", time->time, time->fps);
+	sprintf(stringBuffer, "Score: %d", gameData->score);
 	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
-	sprintf(stringBuffer, "Esc - exit, \030 - faster, \031 - slower");
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 26, stringBuffer, charset);
+}
 
+void DrawDebugInfo(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
+{
+	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
+	sprintf(stringBuffer, "FPS: %.0lf ", time.fps);
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
 }
 
 
@@ -507,61 +660,50 @@ int main(int argc, char** argv)
 	int green = SDL_MapRGB(screen->format, 0x00, 0xFF, 0x00);
 	int blue = SDL_MapRGB(screen->format, 0x11, 0x11, 0xCC);
 
-	time.t1 = SDL_GetTicks();
-
-
-	GameData gameData;
-
-	GameStart(&gameData, bitmaps);
-
+	// this loop is repeated when the player starts a new game
 	while (!quit)
 	{
-		time.t2 = SDL_GetTicks();
+		GameData gameData;
+		GameStart(&gameData, bitmaps);
 
-		// here t2-t1 is the time in milliseconds since
-		// the last screen was drawn
-		// delta is the same time in seconds
-		time.delta = (time.t2 - time.t1) * 0.001;
-		time.t1 = time.t2;
+		// reset the tick counter so that the time delta 
+		// in the first frame doesn't take into account time spent loading the game
+		time.timeCounterPrevious = SDL_GetPerformanceCounter();
 
-		time.time += time.delta;
-
-		SDL_FillRect(screen, NULL, black);
-
-
-		time.fpsTimer += time.delta;
-		if (time.fpsTimer > 0.5)
+		// GAMEPLAY LOOP
+		// this loop is repeated every frame
+		while (!quit)
 		{
-			time.fps = time.frames * 2;
-			time.frames = 0;
-			time.fpsTimer -= 0.5;
+			MeasureTime(&time);
+
+			GameUpdate(time, &gameData, &input);
+
+			DrawGameObjects(screen, &gameData);
+
+			DrawUI(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
+
+			if (input.showDebug)
+				DrawDebugInfo(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
+
+
+
+			SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
+			// SDL_RenderClear(renderer);
+			SDL_RenderCopy(renderer, scrtex, NULL, NULL);
+			SDL_RenderPresent(renderer);
+
+			// handling of events (if there were any)
+			while (SDL_PollEvent(&event))
+			{
+				UpdateInputs(&input, event);
+			}
+
+			if (input.quit)
+			{
+				quit = 1;
+			}
+			time.frames++;
 		}
-
-
-		GameUpdate(time, &gameData, &input);
-
-		DrawGameObjects(screen, &gameData);
-
-		DrawDebugInfo(screen, &time, bitmaps[BMP_CHARSET], stringBuffer);
-
-
-
-		SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
-		// SDL_RenderClear(renderer);
-		SDL_RenderCopy(renderer, scrtex, NULL, NULL);
-		SDL_RenderPresent(renderer);
-
-		// handling of events (if there were any)
-		while (SDL_PollEvent(&event))
-		{
-			UpdateInputs(&input, event);
-		}
-
-		if (input.quit)
-		{
-			quit = 1;
-		}
-		time.frames++;
 	}
 
 	// freeing all surfaces
