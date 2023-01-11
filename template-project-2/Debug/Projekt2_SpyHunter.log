@@ -1,9 +1,9 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (szablon2vs19.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   main.cpp
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(328,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(328,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(571,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(610,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(617,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(671,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(331,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(331,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(582,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(621,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(628,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(682,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
   Projekt2_SpyHunter.vcxproj -> D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\Debug\Projekt2_SpyHunter.exe

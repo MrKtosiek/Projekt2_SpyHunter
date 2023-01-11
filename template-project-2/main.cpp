@@ -32,7 +32,7 @@ extern "C" {
 
 // player stats
 #define PLAYER_MAX_SPEED 1000
-#define PLAYER_MIN_SPEED 300
+#define PLAYER_MIN_SPEED 400
 #define PLAYER_MAX_SPEED_SIDES 400
 #define PLAYER_ACCEL 800
 #define PLAYER_ACCEL_SIDES 2000
@@ -40,10 +40,13 @@ extern "C" {
 // enemy stats
 #define ENEMY_TARGET_DISTANCE 50
 #define ENEMY_MAX_SPEED 800
-#define ENEMY_MIN_SPEED 400
+#define ENEMY_MIN_SPEED 300
 #define ENEMY_MAX_SPEED_SIDES 400
 #define ENEMY_ACCEL 400
 #define ENEMY_ACCEL_SIDES 1000
+
+// enemies further than this from the center of the screen (behind the player) are deleted
+#define ENEMY_ACTIVE_DISTANCE SCREEN_HEIGHT * 3
 
 
 
@@ -329,23 +332,26 @@ public:
 	}
 };
 
-class Player : public GameObject
+class Car : public GameObject
 {
 public:
 	Vector2 speed = {};
 };
 
-class Enemy : public GameObject
+class Player : public Car
 {
 public:
-	Vector2 speed = {};
+	int score = 0;
+};
+
+class Enemy : public Car
+{
+public:
 	int health = 0;
 };
 
 struct GameData
 {
-	int score = 0;
-
 	// game objects
 	Player* player = NULL;
 	int enemyCount = 0;
@@ -426,25 +432,25 @@ void UpdateEnemy(Enemy* enemy, Player* player, Time time)
 
 
 
-Vector2 CalculateOverlap(Player* player, Enemy* enemy)
+Vector2 CalculateOverlap(GameObject* go1, GameObject* go2)
 {
 	Vector2 overlap = {};
-	overlap.x = (player->size.x + enemy->size.x) * 0.5 - fabs(player->position.x - enemy->position.x);
-	overlap.y = (player->size.y + enemy->size.y) * 0.5 - fabs(player->position.y - enemy->position.y);
+	overlap.x = (go1->size.x + go2->size.x) * 0.5 - fabs(go1->position.x - go2->position.x);
+	overlap.y = (go1->size.y + go2->size.y) * 0.5 - fabs(go1->position.y - go2->position.y);
 	return overlap;
 }
 
-void CheckCollision(Player* player, Enemy* enemy)
+void CheckCollision(Car* car1, Car* car2)
 {
-	Vector2 overlap = CalculateOverlap(player, enemy);
+	Vector2 overlap = CalculateOverlap(car1, car2);
 	if (overlap.x >= 0 && overlap.y >= 0)
 	{
-		double temp = player->speed.x * COLLISION_BOUNCE;
-		player->speed.x = enemy->speed.x * COLLISION_BOUNCE;
-		enemy->speed.x = temp;
+		double temp = car1->speed.x * COLLISION_BOUNCE;
+		car1->speed.x = car2->speed.x * COLLISION_BOUNCE;
+		car2->speed.x = temp;
 
-		player->position.x += (overlap.x + 1) * 0.5 * Sign(player->position.x - enemy->position.x);
-		enemy->position.x += (overlap.x + 1) * 0.5 * -Sign(player->position.x - enemy->position.x);
+		car1->position.x += (overlap.x + 1) * 0.5 * Sign(car1->position.x - car2->position.x);
+		car2->position.x += (overlap.x + 1) * 0.5 * -Sign(car1->position.x - car2->position.x);
 	}
 }
 
@@ -453,6 +459,11 @@ void ResolveCollisions(GameData* gameData)
 	for (int i = 0; i < gameData->enemyCount; i++)
 	{
 		CheckCollision(gameData->player, gameData->enemies[i]);
+
+		for (int j = 0; j < gameData->enemyCount; j++)
+		{
+			CheckCollision(gameData->enemies[i], gameData->enemies[j]);
+		}
 	}
 }
 
@@ -495,7 +506,7 @@ void DeleteEnemy(GameData* gameData, int enemyIndex)
 		gameData->enemies[enemyIndex] = gameData->enemies[gameData->enemyCount];
 	}
 
-	printf("Enemy %d deleted successfully\n", enemyIndex);
+	printf("Enemy %d deleted\n", enemyIndex);
 
 }
 
@@ -516,7 +527,7 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 	player->size = CAR_SIZE;
 	gameData->player = player;
 
-	for (int i = 0; i < 20; i++)
+	for (int i = 0; i < 1600; i++)
 	{
 		CreateEnemy(gameData, bitmaps, { (double)SCREEN_WIDTH / 2 + (rand() % 100), (double)SCREEN_HEIGHT / 2 + (rand() % 100) });
 	}
@@ -607,7 +618,7 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
 	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
-	sprintf(stringBuffer, "Score: %d", gameData->score);
+	sprintf(stringBuffer, "Score: %d", gameData->player->score);
 	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
 }
 
@@ -615,7 +626,7 @@ void DrawDebugInfo(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surfa
 {
 	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
 	sprintf(stringBuffer, "FPS: %.0lf ", time.fps);
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
+	DrawString(screen, SCREEN_WIDTH / 2 - strlen(stringBuffer) * 8 / 2, 20, stringBuffer, charset);
 }
 
 
