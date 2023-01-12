@@ -11,6 +11,7 @@ extern "C" {
 
 
 #define FULLSCREEN false
+#define WINDOW_TITLE "Filip Jezierski 196333"
 #define SCREEN_WIDTH 480
 #define SCREEN_HEIGHT 320
 
@@ -23,30 +24,53 @@ extern "C" {
 //////////////////////////////////////////////////////////////////////////////////////
 // GAMEPLAY CONSTANTS
 
-#define MAX_ENEMIES 16
 #define CAR_SIZE { 14, 20 }
 #define PLAYER_Y_POS 240
+
+// the player is given SCORE_PER_DISTANCE points per each DISTANCE_TO_SCORE travelled
+#define SCORE_PER_DISTANCE 50
+#define DISTANCE_TO_SCORE SCREEN_HEIGHT
 
 // value between 0 and 1
 #define COLLISION_BOUNCE 1
 
 // player stats
-#define PLAYER_MAX_SPEED 1000
+#define PLAYER_MAX_SPEED 800
 #define PLAYER_MIN_SPEED 400
 #define PLAYER_MAX_SPEED_SIDES 400
 #define PLAYER_ACCEL 800
 #define PLAYER_ACCEL_SIDES 2000
 
+#define PLAYER_GUN_RANGE 150
+#define PLAYER_FIRE_INTERVAL 0.3
+
 // enemy stats
-#define ENEMY_TARGET_DISTANCE 50
-#define ENEMY_MAX_SPEED 800
+#define ENEMY_TARGET_DISTANCE 40
+#define ENEMY_MAX_SPEED 700
 #define ENEMY_MIN_SPEED 300
 #define ENEMY_MAX_SPEED_SIDES 400
 #define ENEMY_ACCEL 400
 #define ENEMY_ACCEL_SIDES 1000
 
-// enemies further than this from the center of the screen (behind the player) are deleted
-#define ENEMY_ACTIVE_DISTANCE SCREEN_HEIGHT * 3
+// civilian stats
+#define CIVILIAN_SPEED 700
+#define CIVILIAN_ACCEL_SIDES 1000
+
+
+// NPC spawning
+
+// this is a hard limit that cannot be exceeded
+#define MAX_NPCS 16
+#define NPC_SPAWN_TICK_INTERVAL 0.5
+
+// NPCs further than this from the center of the screen are deleted
+#define NPC_DELETE_DISTANCE SCREEN_HEIGHT
+
+enum NPCType
+{
+	ENEMY,
+	CIVILIAN,
+};
 
 
 
@@ -74,10 +98,13 @@ struct Input
 	bool quit;
 	bool pause;
 	bool newGame;
+
 	bool up;
 	bool down;
 	bool left;
 	bool right;
+	bool shoot;
+
 	bool showDebug;
 };
 
@@ -122,6 +149,12 @@ int Sign(double num)
 double RandVal()
 {
 	return (double)(rand() % RAND_VAL_PRECISION) / RAND_VAL_PRECISION;
+}
+
+// returns a random value in the range r1-r2
+double RandRange(double r1, double r2)
+{
+	return r1 + (r2 - r1) * RandVal();
 }
 
 
@@ -229,7 +262,7 @@ bool InitialiseSDL(SDL_Window** window, SDL_Renderer** renderer, SDL_Surface** s
 	SDL_RenderSetLogicalSize(*renderer, SCREEN_WIDTH, SCREEN_HEIGHT);
 	SDL_SetRenderDrawColor(*renderer, 0, 0, 0, 255);
 
-	SDL_SetWindowTitle(*window, "Filip Jezierski 196333");
+	SDL_SetWindowTitle(*window, WINDOW_TITLE);
 
 
 	*screen = SDL_CreateRGBSurface(0, SCREEN_WIDTH, SCREEN_HEIGHT, 32,
@@ -341,12 +374,15 @@ public:
 class Player : public Car
 {
 public:
+	double distanceCounter = 0;
+	double nextShootTime = 0;
 	int score = 0;
 };
 
-class Enemy : public Car
+class NPC : public Car
 {
 public:
+	NPCType type = ENEMY;
 	int health = 0;
 };
 
@@ -354,10 +390,13 @@ struct GameData
 {
 	// game objects
 	Player* player = NULL;
-	int enemyCount = 0;
-	Enemy* enemies[MAX_ENEMIES] = {};
+	int npcCount = 0;
+	NPC* npcs[MAX_NPCS] = {};
 
 	GameObject* background = NULL;
+
+	// NPC spawning
+	double nextNPCSpawnTick = 0;
 };
 
 
@@ -367,32 +406,182 @@ struct GameData
 //////////////////////////////////////////////////////////////////////////////////////
 // GAME MECHANICS
 
+
+void CreateNPC(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos, NPCType type)
+{
+	if (gameData->npcCount >= MAX_NPCS)
+	{
+		printf("Couldn't create a new npc - max npc count reached\n");
+
+		return;
+	}
+
+	NPC* npc = new NPC();
+	npc->position = pos;
+	npc->size = CAR_SIZE;
+
+	npc->type = type;
+	switch (type)
+	{
+	case ENEMY:
+		npc->speed = { 0, -ENEMY_MAX_SPEED };
+		npc->sprite = bitmaps[BMP_ENEMY_CAR];
+		break;
+	case CIVILIAN:
+		npc->speed = { 0, -CIVILIAN_SPEED };
+		npc->sprite = bitmaps[BMP_CIVILIAN_CAR];
+		break;
+	default:
+		break;
+	}
+	gameData->npcs[gameData->npcCount] = npc;
+	gameData->npcCount++;
+}
+void DeleteNPC(GameData* gameData, int npcIndex)
+{
+	// if the deleted npc isn't the last one in the array
+	// move the last one into it's place
+	// like this:
+	// ##D##L
+	//     / 
+	//    /  
+	// ##L## 
+
+	NPCType type = gameData->npcs[npcIndex]->type;
+	delete gameData->npcs[npcIndex];
+
+	gameData->npcCount--;
+	if (npcIndex != gameData->npcCount)
+	{
+		gameData->npcs[npcIndex] = gameData->npcs[gameData->npcCount];
+	}
+}
+
+bool IsOnRoad(Vector2 pos)
+{
+	if (pos.x > SCREEN_WIDTH * 0.3 &&
+		pos.x < SCREEN_WIDTH * 0.7)
+		return true;
+
+	return false;
+}
+
 double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
 {
 	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
 }
 
-// accelerate & decelerate the player
+
 void PlayerSteering(Player* player, Time time, Input* input)
 {
+	// convert input into a direction vector
 	Vector2 steering = { 0,0 };
-
 	if (input->up) steering.y--;
 	if (input->down) steering.y++;
 	if (input->left) steering.x--;
 	if (input->right) steering.x++;
 
-	player->speed.y += steering.y * time.delta * PLAYER_ACCEL;
-
+	// accelerate / decelerate and steer the car
 	MoveTowards(&player->speed.x, 
 		steering.x * CalculateMaxSideSpeed(-player->speed.y, PLAYER_MAX_SPEED, PLAYER_MAX_SPEED_SIDES),
 		time.delta * PLAYER_ACCEL_SIDES);
-
+	player->speed.y += steering.y * time.delta * PLAYER_ACCEL;
 	player->speed.y = Clamp(player->speed.y, -PLAYER_MAX_SPEED, -PLAYER_MIN_SPEED);
 
+	// the player doesn't move along the y axis, the rest of the world does
 	player->position.x += player->speed.x * time.delta;
+	player->position.y = PLAYER_Y_POS;
 
+
+	// count the score based on distance
+	player->distanceCounter -= player->speed.y * time.delta;
+	if (player->distanceCounter >= DISTANCE_TO_SCORE)
+	{
+		player->score += SCORE_PER_DISTANCE;
+		player->distanceCounter = 0;
+	}
 }
+
+void PlayerShoot(GameData* gameData)
+{
+	printf("Shoot! %d\n", gameData->player);
+	Player* player = gameData->player;
+	for (int i = 0; i < gameData->npcCount; i++)
+	{
+		NPC* npc = gameData->npcs[i];
+		if (npc->position.y < player->position.y &&
+			npc->position.y > player->position.y - PLAYER_GUN_RANGE &&
+			fabs(npc->position.x - player->position.x) <= player->size.x)
+		{
+			npc->health--;
+			if (npc->health <= 0)
+			{
+				DeleteNPC(gameData, i);
+			}
+		}
+	}
+}
+void PlayerShooting(GameData* gameData, Time time, Input* input)
+{
+	if (input->shoot && gameData->player->nextShootTime <= time.time)
+	{
+		gameData->player->nextShootTime = time.time + PLAYER_FIRE_INTERVAL;
+
+		PlayerShoot(gameData);
+	}
+}
+
+
+void EnemyAI(NPC* npc, Player* player, Time time)
+{
+	if (fabs(npc->position.y - player->position.y) < ENEMY_TARGET_DISTANCE)
+	{
+		// match the players speed
+		MoveTowards(&npc->speed.y, player->speed.y - (npc->position.y - player->position.y), time.delta * ENEMY_ACCEL);
+
+		// try to push the player off the road
+		MoveTowards(&npc->speed.x,
+			Sign(player->position.x - npc->position.x) * CalculateMaxSideSpeed(-npc->speed.y, ENEMY_MAX_SPEED, ENEMY_MAX_SPEED_SIDES),
+			time.delta * ENEMY_ACCEL_SIDES);
+	}
+	else
+	{
+		// catch up or wait for the player
+		if (npc->position.y < player->position.y)
+			MoveTowards(&npc->speed.y, player->speed.y + 100, time.delta * ENEMY_ACCEL);
+		else
+			MoveTowards(&npc->speed.y, -ENEMY_MAX_SPEED, time.delta * ENEMY_ACCEL);
+
+		MoveTowards(&npc->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
+	}
+
+
+	npc->speed.y = Clamp(npc->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
+}
+void CivilianAI(NPC* npc, Time time)
+{
+	MoveTowards(&npc->speed.x, 0, time.delta * CIVILIAN_ACCEL_SIDES);
+
+	//npc->speed.y = Clamp(npc->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
+}
+void UpdateNPC(NPC* npc, Player* player, Time time)
+{
+	switch (npc->type)
+	{
+	case ENEMY:
+		EnemyAI(npc, player, time);
+		break;
+	case CIVILIAN:
+		CivilianAI(npc, time);
+		break;
+	default:
+		break;
+	}
+
+	npc->position.x += npc->speed.x * time.delta;
+	npc->position.y += (npc->speed.y - player->speed.y) * time.delta;
+}
+
 
 void MoveBackground(GameObject* background, double playerSpeed, Time time)
 {
@@ -401,33 +590,30 @@ void MoveBackground(GameObject* background, double playerSpeed, Time time)
 		background->position.y = 0;
 }
 
-void UpdateEnemy(Enemy* enemy, Player* player, Time time)
+
+
+double GetRandomPosOnRoad()
 {
-	if (fabs(enemy->position.y - player->position.y) < ENEMY_TARGET_DISTANCE)
+	return RandRange(SCREEN_WIDTH * 0.3, SCREEN_WIDTH * 0.7);
+}
+
+void NPCSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
+{
+	if (gameData->nextNPCSpawnTick <= time.time)
 	{
-		// match the players speed
-		MoveTowards(&enemy->speed.y, player->speed.y - (enemy->position.y - player->position.y), time.delta * ENEMY_ACCEL);
+		gameData->nextNPCSpawnTick = time.time + NPC_SPAWN_TICK_INTERVAL;
 
-		// try to push the player off the road
-		MoveTowards(&enemy->speed.x, 
-			Sign(player->position.x - enemy->position.x) * CalculateMaxSideSpeed(-enemy->speed.y, ENEMY_MAX_SPEED, ENEMY_MAX_SPEED_SIDES), 
-			time.delta * ENEMY_ACCEL_SIDES);
+		if (RandVal() < (1.0 / (__max(gameData->npcCount, 1))))
+		{
+			NPCType type = ENEMY;
+			if (gameData->npcCount >= 2 && rand() % 2)
+			{
+				 type = CIVILIAN;
+			}
+
+			CreateNPC(gameData, bitmaps, { GetRandomPosOnRoad() , -20 }, type);
+		}
 	}
-	else
-	{
-		// catch up or wait for the player
-		if (enemy->position.y < player->position.y)
-			MoveTowards(&enemy->speed.y, -ENEMY_MIN_SPEED, time.delta * ENEMY_ACCEL);
-		else
-			MoveTowards(&enemy->speed.y, -ENEMY_MAX_SPEED, time.delta * ENEMY_ACCEL);
-
-		MoveTowards(&enemy->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
-	}
-
-	enemy->speed.y = Clamp(enemy->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
-
-	enemy->position.x += enemy->speed.x * time.delta;
-	enemy->position.y += (enemy->speed.y - player->speed.y) * time.delta;
 }
 
 
@@ -449,72 +635,48 @@ void CheckCollision(Car* car1, Car* car2)
 		car1->speed.x = car2->speed.x * COLLISION_BOUNCE;
 		car2->speed.x = temp;
 
-		car1->position.x += (overlap.x + 1) * 0.5 * Sign(car1->position.x - car2->position.x);
-		car2->position.x += (overlap.x + 1) * 0.5 * -Sign(car1->position.x - car2->position.x);
+		if (overlap.y <= 2)
+		{
+			if (car1->position.y > car2->position.y)
+				car1->speed.y = __max(car1->speed.y, car2->speed.y);
+			else
+				car2->speed.y = __max(car1->speed.y, car2->speed.y);
+		}
+
+		if (overlap.x < overlap.y)
+		{
+			// horizontal collision
+			car1->position.x += (overlap.x + 1) * 0.5 * Sign(car1->position.x - car2->position.x);
+			car2->position.x += (overlap.x + 1) * 0.5 * -Sign(car1->position.x - car2->position.x);
+		}
+		else
+		{
+			// vertical collision
+			car1->position.y += (overlap.y + 1) * 0.5 * Sign(car1->position.y - car2->position.y);
+			car2->position.y += (overlap.y + 1) * 0.5 * -Sign(car1->position.y - car2->position.y);
+		}
 	}
 }
 
 void ResolveCollisions(GameData* gameData)
 {
-	for (int i = 0; i < gameData->enemyCount; i++)
+	for (int i = 0; i < gameData->npcCount; i++)
 	{
-		CheckCollision(gameData->player, gameData->enemies[i]);
+		CheckCollision(gameData->player, gameData->npcs[i]);
 
-		for (int j = 0; j < gameData->enemyCount; j++)
+		for (int j = 0; j < gameData->npcCount; j++)
 		{
-			CheckCollision(gameData->enemies[i], gameData->enemies[j]);
+			CheckCollision(gameData->npcs[i], gameData->npcs[j]);
 		}
 	}
 }
 
 
 
-
-void CreateEnemy(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos)
-{
-	if (gameData->enemyCount >= MAX_ENEMIES)
-	{
-		printf("Couldn't create a new enemy - max enemy count reached\n");
-
-		return;
-	}
-
-	Enemy* enemy = new Enemy();
-	enemy->position = pos;
-	enemy->sprite = bitmaps[BMP_ENEMY_CAR];
-	enemy->size = CAR_SIZE;
-	enemy->speed = { 0, -PLAYER_MAX_SPEED / 2 };
-	gameData->enemies[gameData->enemyCount] = enemy;
-	gameData->enemyCount++;
-}
-
-void DeleteEnemy(GameData* gameData, int enemyIndex)
-{
-	// if the deleted enemy isn't the last one in the array
-	// move the last one into it's place
-	// like this:
-	// ##D##L
-	//     / 
-	//    /  
-	// ##L## 
-
-	delete gameData->enemies[enemyIndex];
-
-	gameData->enemyCount--;
-	if (enemyIndex != gameData->enemyCount)
-	{
-		gameData->enemies[enemyIndex] = gameData->enemies[gameData->enemyCount];
-	}
-
-	printf("Enemy %d deleted\n", enemyIndex);
-
-}
-
-
 // create all necessary GameObjects
 void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 {
-	gameData->enemyCount = 0;
+	gameData->npcCount = 0;
 
 	GameObject* background = new GameObject();
 	background->sprite = bitmaps[BMP_BACKGROUND];
@@ -526,29 +688,30 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 	player->position = { SCREEN_WIDTH / 2, PLAYER_Y_POS };
 	player->size = CAR_SIZE;
 	gameData->player = player;
-
-	for (int i = 0; i < 1600; i++)
-	{
-		CreateEnemy(gameData, bitmaps, { (double)SCREEN_WIDTH / 2 + (rand() % 100), (double)SCREEN_HEIGHT / 2 + (rand() % 100) });
-	}
 }
 
-void GameUpdate(Time time, GameData* gameData, Input* input)
+void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
 {
 	PlayerSteering(gameData->player, time, input);
+	PlayerShooting(gameData, time, input);
 
 	MoveBackground(gameData->background, gameData->player->speed.y, time);
 
-	for (int i = 0; i < gameData->enemyCount; i++)
+	printf("\nNPCs: %d ", gameData->npcCount);
+	for (int i = 0; i < gameData->npcCount; i++)
 	{
-		UpdateEnemy(gameData->enemies[i], gameData->player, time);
-		if (gameData->enemies[i]->position.y >= 2 * SCREEN_HEIGHT)
+		UpdateNPC(gameData->npcs[i], gameData->player, time);
+		if (fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT/2) >= NPC_DELETE_DISTANCE)
 		{
-			DeleteEnemy(gameData, i);
+			DeleteNPC(gameData, i);
 		}
+
+		printf("[I: % d, (% .0f, % .0f)]", i, gameData->npcs[i]->position.x, gameData->npcs[i]->position.y);
 	}
 
 	ResolveCollisions(gameData);
+
+	NPCSpawning(gameData, bitmaps, time);
 }
 
 void UpdateInputs(Input* input, SDL_Event event)
@@ -557,10 +720,12 @@ void UpdateInputs(Input* input, SDL_Event event)
 	{
 	case SDL_KEYDOWN:
 		if (event.key.keysym.sym == SDLK_ESCAPE) input->quit = true;
+		else if (event.key.keysym.sym == SDLK_n) input->newGame = true;
 		else if (event.key.keysym.sym == SDLK_UP) input->up = true;
 		else if (event.key.keysym.sym == SDLK_DOWN) input->down = true;
 		else if (event.key.keysym.sym == SDLK_LEFT) input->left = true;
 		else if (event.key.keysym.sym == SDLK_RIGHT) input->right = true;
+		else if (event.key.keysym.sym == SDLK_SPACE) input->shoot = true;
 		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // debug info is toggled on keypress
 		break;
 	case SDL_KEYUP:
@@ -568,6 +733,7 @@ void UpdateInputs(Input* input, SDL_Event event)
 		else if (event.key.keysym.sym == SDLK_DOWN) input->down = false;
 		else if (event.key.keysym.sym == SDLK_LEFT) input->left = false;
 		else if (event.key.keysym.sym == SDLK_RIGHT) input->right = false;
+		else if (event.key.keysym.sym == SDLK_SPACE) input->shoot = false;
 		break;
 	case SDL_QUIT:
 		input->quit = true;
@@ -609,17 +775,17 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 
 	gameData->player->Draw(screen);
 
-	for (int i = 0; i < gameData->enemyCount; i++)
+	for (int i = 0; i < gameData->npcCount; i++)
 	{
-		gameData->enemies[i]->Draw(screen);
+		gameData->npcs[i]->Draw(screen);
 	}
 }
 
 void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
-	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
-	sprintf(stringBuffer, "Score: %d", gameData->player->score);
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 10, stringBuffer, charset);
+	DrawString(screen, screen->w / 2 - strlen(WINDOW_TITLE) * 8 / 2, 10, WINDOW_TITLE, charset);
+	sprintf(stringBuffer, "Time: %.2f Score: %d", time.time, gameData->player->score);
+	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 20, stringBuffer, charset);
 }
 
 void DrawDebugInfo(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
@@ -645,8 +811,6 @@ int main(int argc, char** argv)
 
 	char stringBuffer[STRING_BUFFER_SIZE] = {};
 	int quit = 0;
-	Time time = {};
-	Input input = {};
 
 	SDL_Surface* bitmaps[BMP_COUNT];
 
@@ -674,6 +838,9 @@ int main(int argc, char** argv)
 	// this loop is repeated when the player starts a new game
 	while (!quit)
 	{
+		Time time = {};
+		Input input = {};
+
 		GameData gameData;
 		GameStart(&gameData, bitmaps);
 
@@ -683,11 +850,11 @@ int main(int argc, char** argv)
 
 		// GAMEPLAY LOOP
 		// this loop is repeated every frame
-		while (!quit)
+		while (!quit && !input.newGame)
 		{
 			MeasureTime(&time);
 
-			GameUpdate(time, &gameData, &input);
+			GameUpdate(time, &gameData, bitmaps, &input);
 
 			DrawGameObjects(screen, &gameData);
 
