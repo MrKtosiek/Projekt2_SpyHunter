@@ -15,6 +15,7 @@ extern "C" {
 #define SCREEN_WIDTH 480
 #define SCREEN_HEIGHT 320
 
+#define FPS_LIMIT 144
 #define FPS_COUNTER_INTERVAL 0.1
 #define RAND_VAL_PRECISION 100
 
@@ -29,6 +30,7 @@ extern "C" {
 
 // the player is given SCORE_PER_DISTANCE points per each DISTANCE_TO_SCORE travelled
 #define SCORE_PER_DISTANCE 50
+#define SCORE_PENALTY_DURATION 10
 #define DISTANCE_TO_SCORE SCREEN_HEIGHT
 
 // value between 0 and 1
@@ -51,9 +53,11 @@ extern "C" {
 #define ENEMY_MAX_SPEED_SIDES 400
 #define ENEMY_ACCEL 400
 #define ENEMY_ACCEL_SIDES 1000
+#define ENEMY_BRAKING 300
 
 // civilian stats
-#define CIVILIAN_SPEED 700
+#define CIVILIAN_SPEED 500
+#define CIVILIAN_ACCEL 400
 #define CIVILIAN_ACCEL_SIDES 1000
 
 
@@ -70,6 +74,19 @@ enum NPCType
 {
 	ENEMY,
 	CIVILIAN,
+};
+
+enum UIAnchor
+{
+	CENTER,
+	UPPER_LEFT,
+	UPPER_RIGHT,
+	LOWER_LEFT,
+	LOWER_RIGHT,
+	MIDDLE_LEFT,
+	MIDDLE_RIGHT,
+	UPPER_CENTER,
+	LOWER_CENTER,
 };
 
 
@@ -161,10 +178,50 @@ double RandRange(double r1, double r2)
 //////////////////////////////////////////////////////////////////////////////////////
 // RENDERING
 
-// draw a text txt on surface screen, starting from the point (x, y)
+// draw a text on surface screen, offset by (x, y) from the anchor
 // charset is a 128x128 bitmap containing character images
-void DrawString(SDL_Surface* screen, int x, int y, const char* text, SDL_Surface* charset)
+void DrawString(SDL_Surface* screen, Vector2 offset, const char* text, SDL_Surface* charset, UIAnchor anchor)
 {
+	int x = offset.x;
+	int y = offset.y;
+	Vector2 size = { strlen(text) * 8, 8 };
+
+	switch (anchor)
+	{
+	case CENTER:
+		x += screen->w / 2 - size.x / 2;
+		y += screen->h / 2 - size.y / 2;
+		break;
+	case UPPER_LEFT:
+		break;
+	case UPPER_RIGHT:
+		x += screen->w - size.x;
+		break;
+	case LOWER_LEFT:
+		y += screen->h - size.y;
+		break;
+	case LOWER_RIGHT:
+		x += screen->w - size.x;
+		y += screen->h - size.y;
+		break;
+	case MIDDLE_LEFT:
+		y += screen->h / 2 - size.y / 2;
+		break;
+	case MIDDLE_RIGHT:
+		x += screen->w - size.x;
+		y += screen->h / 2 - size.y / 2;
+		break;
+	case UPPER_CENTER:
+		x += screen->w / 2 - size.x / 2;
+		break;
+	case LOWER_CENTER:
+		x += screen->w / 2 - size.x / 2;
+		y += screen->h - size.y;
+		break;
+	default:
+		break;
+	}
+
 	int px, py, c;
 	SDL_Rect s, d;
 	s.w = 8;
@@ -173,7 +230,7 @@ void DrawString(SDL_Surface* screen, int x, int y, const char* text, SDL_Surface
 	d.h = 8;
 	while (*text)
 	{
-		c = *text & 255;
+		c = *text;
 		px = (c % 16) * 8;
 		py = (c / 16) * 8;
 		s.x = px;
@@ -407,6 +464,21 @@ struct GameData
 // GAME MECHANICS
 
 
+bool IsOnRoad(Vector2 pos)
+{
+	if (pos.x > SCREEN_WIDTH * 0.3 &&
+		pos.x < SCREEN_WIDTH * 0.7)
+		return true;
+
+	return false;
+}
+
+double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
+{
+	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
+}
+
+
 void CreateNPC(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos, NPCType type)
 {
 	if (gameData->npcCount >= MAX_NPCS)
@@ -455,20 +527,6 @@ void DeleteNPC(GameData* gameData, int npcIndex)
 	{
 		gameData->npcs[npcIndex] = gameData->npcs[gameData->npcCount];
 	}
-}
-
-bool IsOnRoad(Vector2 pos)
-{
-	if (pos.x > SCREEN_WIDTH * 0.3 &&
-		pos.x < SCREEN_WIDTH * 0.7)
-		return true;
-
-	return false;
-}
-
-double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
-{
-	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
 }
 
 
@@ -548,7 +606,7 @@ void EnemyAI(NPC* npc, Player* player, Time time)
 	{
 		// catch up or wait for the player
 		if (npc->position.y < player->position.y)
-			MoveTowards(&npc->speed.y, player->speed.y + 100, time.delta * ENEMY_ACCEL);
+			MoveTowards(&npc->speed.y, player->speed.y + ENEMY_BRAKING, time.delta * ENEMY_ACCEL);
 		else
 			MoveTowards(&npc->speed.y, -ENEMY_MAX_SPEED, time.delta * ENEMY_ACCEL);
 
@@ -561,8 +619,7 @@ void EnemyAI(NPC* npc, Player* player, Time time)
 void CivilianAI(NPC* npc, Time time)
 {
 	MoveTowards(&npc->speed.x, 0, time.delta * CIVILIAN_ACCEL_SIDES);
-
-	//npc->speed.y = Clamp(npc->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
+	MoveTowards(&npc->speed.y, -CIVILIAN_SPEED, time.delta * CIVILIAN_ACCEL);
 }
 void UpdateNPC(NPC* npc, Player* player, Time time)
 {
@@ -631,29 +688,25 @@ void CheckCollision(Car* car1, Car* car2)
 	Vector2 overlap = CalculateOverlap(car1, car2);
 	if (overlap.x >= 0 && overlap.y >= 0)
 	{
-		double temp = car1->speed.x * COLLISION_BOUNCE;
-		car1->speed.x = car2->speed.x * COLLISION_BOUNCE;
-		car2->speed.x = temp;
-
-		if (overlap.y <= 2)
-		{
-			if (car1->position.y > car2->position.y)
-				car1->speed.y = __max(car1->speed.y, car2->speed.y);
-			else
-				car2->speed.y = __max(car1->speed.y, car2->speed.y);
-		}
-
-		if (overlap.x < overlap.y)
+		if (fabs(car1->position.x - car2->position.x) >= (car1->size.x + car2->size.x) * 0.25)
 		{
 			// horizontal collision
 			car1->position.x += (overlap.x + 1) * 0.5 * Sign(car1->position.x - car2->position.x);
 			car2->position.x += (overlap.x + 1) * 0.5 * -Sign(car1->position.x - car2->position.x);
+
+			double temp = car1->speed.x * COLLISION_BOUNCE;
+			car1->speed.x = car2->speed.x * COLLISION_BOUNCE;
+			car2->speed.x = temp;
 		}
 		else
 		{
 			// vertical collision
 			car1->position.y += (overlap.y + 1) * 0.5 * Sign(car1->position.y - car2->position.y);
 			car2->position.y += (overlap.y + 1) * 0.5 * -Sign(car1->position.y - car2->position.y);
+
+			double temp = car1->speed.y * COLLISION_BOUNCE;
+			car1->speed.y = car2->speed.y * COLLISION_BOUNCE;
+			car2->speed.y = temp;
 		}
 	}
 }
@@ -783,16 +836,17 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 
 void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
-	DrawString(screen, screen->w / 2 - strlen(WINDOW_TITLE) * 8 / 2, 10, WINDOW_TITLE, charset);
+	DrawString(screen, { 0,10 }, WINDOW_TITLE, charset, UPPER_CENTER);
 	sprintf(stringBuffer, "Time: %.2f Score: %d", time.time, gameData->player->score);
-	DrawString(screen, screen->w / 2 - strlen(stringBuffer) * 8 / 2, 20, stringBuffer, charset);
+	DrawString(screen, { 0,30 }, stringBuffer, charset, UPPER_CENTER);
+	DrawString(screen, { 0,-20 }, "No points!", charset, LOWER_CENTER);
 }
 
 void DrawDebugInfo(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
 	//DrawRectangle(screen, 4, 4, SCREEN_WIDTH - 8, 36, red, blue);
 	sprintf(stringBuffer, "FPS: %.0lf ", time.fps);
-	DrawString(screen, SCREEN_WIDTH / 2 - strlen(stringBuffer) * 8 / 2, 20, stringBuffer, charset);
+	DrawString(screen, { 0,10 }, stringBuffer, charset, UPPER_RIGHT);
 }
 
 
@@ -880,6 +934,13 @@ int main(int argc, char** argv)
 			{
 				quit = 1;
 			}
+
+			// limit the FPS
+			if (FPS_LIMIT > 0)
+			{
+				SDL_Delay((int)(1000.0 / FPS_LIMIT - time.delta));
+			}
+			
 			time.frames++;
 		}
 	}

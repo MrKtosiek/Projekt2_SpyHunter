@@ -1,10 +1,25 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (szablon2vs19.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   main.cpp
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(364,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(364,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(507,9): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'Player *'
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(748,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(787,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(794,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(849,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(185,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(186,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(187,32): warning C4838: conversion from 'size_t' to 'double' requires a narrowing conversion
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(192,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(193,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(198,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(201,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(204,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(205,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(208,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(211,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(212,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(215,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(218,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(219,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(421,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(421,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(565,9): warning C4477: 'printf' : format string '%d' requires an argument of type 'int', but variadic argument 1 has type 'Player *'
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(804,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(843,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(851,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(906,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
   Projekt2_SpyHunter.vcxproj -> D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\Debug\Projekt2_SpyHunter.exe
