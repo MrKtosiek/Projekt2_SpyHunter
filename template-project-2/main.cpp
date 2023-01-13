@@ -35,6 +35,9 @@ extern "C" {
 
 // value between 0 and 1
 #define COLLISION_BOUNCE 1
+#define COLLISION_KILL_SPEED 200
+
+#define DEATH_ANIM_DURATION 0.3
 
 // player stats
 #define PLAYER_MAX_SPEED 800
@@ -357,6 +360,8 @@ enum BitmapData
 	BMP_PLAYER_CAR,
 	BMP_ENEMY_CAR,
 	BMP_CIVILIAN_CAR,
+	BMP_EXPLOSION_0,
+	BMP_EXPLOSION_1,
 	BMP_BACKGROUND,
 	BMP_COUNT
 };
@@ -371,6 +376,8 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 	error |= !LoadBitmap(&bmps[BMP_PLAYER_CAR], "./sprites/player_car.bmp");
 	error |= !LoadBitmap(&bmps[BMP_ENEMY_CAR], "./sprites/enemy_car.bmp");
 	error |= !LoadBitmap(&bmps[BMP_CIVILIAN_CAR], "./sprites/civilian_car.bmp");
+	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_0], "./sprites/explosion_0.bmp");
+	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_1], "./sprites/explosion_1.bmp");
 	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/grass.bmp");
 
 	if (error)
@@ -426,6 +433,31 @@ class Car : public GameObject
 {
 public:
 	Vector2 speed = {};
+
+	SDL_Surface* explosion0 = NULL;
+	SDL_Surface* explosion1 = NULL;
+
+	double deathTime = 0;
+	bool IsDead()
+	{
+		return deathTime > 0;
+	}
+
+	// returns true if the animation has ended & the car can be deleted
+	bool AnimateDeath(Time time)
+	{
+		if (deathTime > 0)
+		{
+			if (time.time >= deathTime + DEATH_ANIM_DURATION)
+				return true; 
+			else if (time.time >= deathTime + DEATH_ANIM_DURATION / 2)
+				sprite = explosion1;
+			else if (time.time >= deathTime)
+				sprite = explosion0;
+		}
+
+		return false;
+	}
 };
 
 class Player : public Car
@@ -490,7 +522,10 @@ void CreateNPC(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos, NPCType t
 
 	NPC* npc = new NPC();
 	npc->position = pos;
+	npc->deathTime = 0;
 	npc->size = CAR_SIZE;
+	npc->explosion0 = bitmaps[BMP_EXPLOSION_0];
+	npc->explosion1 = bitmaps[BMP_EXPLOSION_1];
 
 	npc->type = type;
 	switch (type)
@@ -529,6 +564,11 @@ void DeleteNPC(GameData* gameData, int npcIndex)
 	}
 }
 
+void KillCar(Car* car, Time time)
+{
+	if (!car->IsDead())
+		car->deathTime = time.time;
+}
 
 void PlayerSteering(Player* player, Time time, Input* input)
 {
@@ -560,7 +600,7 @@ void PlayerSteering(Player* player, Time time, Input* input)
 	}
 }
 
-void PlayerShoot(GameData* gameData)
+void PlayerShoot(GameData* gameData, Time time)
 {
 	printf("Shoot! %d\n", gameData->player);
 	Player* player = gameData->player;
@@ -574,7 +614,7 @@ void PlayerShoot(GameData* gameData)
 			npc->health--;
 			if (npc->health <= 0)
 			{
-				DeleteNPC(gameData, i);
+				KillCar(npc, time);
 			}
 		}
 	}
@@ -585,7 +625,7 @@ void PlayerShooting(GameData* gameData, Time time, Input* input)
 	{
 		gameData->player->nextShootTime = time.time + PLAYER_FIRE_INTERVAL;
 
-		PlayerShoot(gameData);
+		PlayerShoot(gameData, time);
 	}
 }
 
@@ -683,8 +723,11 @@ Vector2 CalculateOverlap(GameObject* go1, GameObject* go2)
 	return overlap;
 }
 
-void CheckCollision(Car* car1, Car* car2)
+void CheckCollision(Car* car1, Car* car2, Time time)
 {
+	if (car1->IsDead() || car2->IsDead())
+		return;
+
 	Vector2 overlap = CalculateOverlap(car1, car2);
 	if (overlap.x >= 0 && overlap.y >= 0)
 	{
@@ -704,6 +747,16 @@ void CheckCollision(Car* car1, Car* car2)
 			car1->position.y += (overlap.y + 1) * 0.5 * Sign(car1->position.y - car2->position.y);
 			car2->position.y += (overlap.y + 1) * 0.5 * -Sign(car1->position.y - car2->position.y);
 
+
+			if (fabs(car1->speed.y - car2->speed.y) >= COLLISION_KILL_SPEED)
+			{
+				if (car1->position.y > car2->position.y)
+					KillCar(car1, time);
+				else
+					KillCar(car2, time);
+
+			}
+
 			double temp = car1->speed.y * COLLISION_BOUNCE;
 			car1->speed.y = car2->speed.y * COLLISION_BOUNCE;
 			car2->speed.y = temp;
@@ -711,15 +764,15 @@ void CheckCollision(Car* car1, Car* car2)
 	}
 }
 
-void ResolveCollisions(GameData* gameData)
+void ResolveCollisions(GameData* gameData, Time time)
 {
 	for (int i = 0; i < gameData->npcCount; i++)
 	{
-		CheckCollision(gameData->player, gameData->npcs[i]);
+		CheckCollision(gameData->player, gameData->npcs[i], time);
 
 		for (int j = 0; j < gameData->npcCount; j++)
 		{
-			CheckCollision(gameData->npcs[i], gameData->npcs[j]);
+			CheckCollision(gameData->npcs[i], gameData->npcs[j], time);
 		}
 	}
 }
@@ -738,6 +791,9 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 
 	Player* player = new Player();
 	player->sprite = bitmaps[BMP_PLAYER_CAR];
+	player->deathTime = 0;
+	player->explosion0 = bitmaps[BMP_EXPLOSION_0];
+	player->explosion1 = bitmaps[BMP_EXPLOSION_1];
 	player->position = { SCREEN_WIDTH / 2, PLAYER_Y_POS };
 	player->size = CAR_SIZE;
 	gameData->player = player;
@@ -750,19 +806,26 @@ void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* inp
 
 	MoveBackground(gameData->background, gameData->player->speed.y, time);
 
-	printf("\nNPCs: %d ", gameData->npcCount);
+	if (gameData->player->AnimateDeath(time))
+	{
+		// game over
+	}
+
+	//printf("\nNPCs: %d ", gameData->npcCount);
 	for (int i = 0; i < gameData->npcCount; i++)
 	{
 		UpdateNPC(gameData->npcs[i], gameData->player, time);
-		if (fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT/2) >= NPC_DELETE_DISTANCE)
+
+		if (gameData->npcs[i]->AnimateDeath(time) ||
+			fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= NPC_DELETE_DISTANCE)
 		{
 			DeleteNPC(gameData, i);
 		}
 
-		printf("[I: % d, (% .0f, % .0f)]", i, gameData->npcs[i]->position.x, gameData->npcs[i]->position.y);
+		//printf("[I: %d, (%.0f, %.0f)]", i, gameData->npcs[i]->position.x, gameData->npcs[i]->position.y);
 	}
 
-	ResolveCollisions(gameData);
+	ResolveCollisions(gameData, time);
 
 	NPCSpawning(gameData, bitmaps, time);
 }
