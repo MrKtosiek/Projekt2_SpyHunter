@@ -15,7 +15,7 @@ extern "C" {
 #define SCREEN_WIDTH 480
 #define SCREEN_HEIGHT 320
 
-#define FPS_LIMIT 144
+#define FPS_LIMIT 144 // set to -1 for unlimited FPS
 #define FPS_COUNTER_INTERVAL 0.1
 #define RAND_VAL_PRECISION 100
 
@@ -36,6 +36,7 @@ extern "C" {
 // value between 0 and 1
 #define COLLISION_BOUNCE 1
 #define COLLISION_KILL_SPEED 200
+#define EXPLOSION_FRICTION 200
 
 #define DEATH_ANIM_DURATION 0.3
 
@@ -47,7 +48,7 @@ extern "C" {
 #define PLAYER_ACCEL_SIDES 2000
 
 #define PLAYER_GUN_RANGE 150
-#define PLAYER_FIRE_INTERVAL 0.3
+#define PLAYER_FIRE_INTERVAL 0.1
 
 // enemy stats
 #define ENEMY_TARGET_DISTANCE 40
@@ -106,6 +107,7 @@ struct Time
 	long timeCounterCurrent, timeCounterPrevious;
 	double time;
 	double delta;
+	bool paused;
 
 	// these variables are used for calculating the FPS
 	int frames;
@@ -464,6 +466,7 @@ class Player : public Car
 {
 public:
 	double distanceCounter = 0;
+	double scoringDistanceCounter = 0;
 	double nextShootTime = 0;
 	int score = 0;
 };
@@ -498,8 +501,8 @@ struct GameData
 
 bool IsOnRoad(Vector2 pos)
 {
-	if (pos.x > SCREEN_WIDTH * 0.3 &&
-		pos.x < SCREEN_WIDTH * 0.7)
+	if (pos.x > SCREEN_WIDTH * 0.25 &&
+		pos.x < SCREEN_WIDTH * 0.75)
 		return true;
 
 	return false;
@@ -589,15 +592,6 @@ void PlayerSteering(Player* player, Time time, Input* input)
 	// the player doesn't move along the y axis, the rest of the world does
 	player->position.x += player->speed.x * time.delta;
 	player->position.y = PLAYER_Y_POS;
-
-
-	// count the score based on distance
-	player->distanceCounter -= player->speed.y * time.delta;
-	if (player->distanceCounter >= DISTANCE_TO_SCORE)
-	{
-		player->score += SCORE_PER_DISTANCE;
-		player->distanceCounter = 0;
-	}
 }
 
 void PlayerShoot(GameData* gameData, Time time)
@@ -629,6 +623,16 @@ void PlayerShooting(GameData* gameData, Time time, Input* input)
 	}
 }
 
+void CountScorePerDistance(Player* player, Time time)
+{
+	// count the score based on distance
+	player->scoringDistanceCounter -= player->speed.y * time.delta;
+	if (player->scoringDistanceCounter >= DISTANCE_TO_SCORE)
+	{
+		player->score += SCORE_PER_DISTANCE;
+		player->scoringDistanceCounter = 0;
+	}
+}
 
 void EnemyAI(NPC* npc, Player* player, Time time)
 {
@@ -663,16 +667,24 @@ void CivilianAI(NPC* npc, Time time)
 }
 void UpdateNPC(NPC* npc, Player* player, Time time)
 {
-	switch (npc->type)
+	if (!npc->IsDead())
 	{
-	case ENEMY:
-		EnemyAI(npc, player, time);
-		break;
-	case CIVILIAN:
-		CivilianAI(npc, time);
-		break;
-	default:
-		break;
+		switch (npc->type)
+		{
+		case ENEMY:
+			EnemyAI(npc, player, time);
+			break;
+		case CIVILIAN:
+			CivilianAI(npc, time);
+			break;
+		default:
+			break;
+		}
+	}
+	else
+	{
+		MoveTowards(&npc->speed.x, 0, EXPLOSION_FRICTION * time.delta);
+		MoveTowards(&npc->speed.y, 0, EXPLOSION_FRICTION * time.delta);
 	}
 
 	npc->position.x += npc->speed.x * time.delta;
@@ -801,20 +813,33 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 
 void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
 {
-	PlayerSteering(gameData->player, time, input);
-	PlayerShooting(gameData, time, input);
+	if (!IsOnRoad(gameData->player->position))
+		KillCar(gameData->player, time);
 
-	MoveBackground(gameData->background, gameData->player->speed.y, time);
+	if (!gameData->player->IsDead())
+	{
+		PlayerSteering(gameData->player, time, input);
+		PlayerShooting(gameData, time, input);
 
-	if (gameData->player->AnimateDeath(time))
+		MoveBackground(gameData->background, gameData->player->speed.y, time);
+
+		NPCSpawning(gameData, bitmaps, time);
+	}
+	else
 	{
 		// game over
+		gameData->player->AnimateDeath(time);
+		gameData->player->speed.y = 0;
+
 	}
 
 	//printf("\nNPCs: %d ", gameData->npcCount);
 	for (int i = 0; i < gameData->npcCount; i++)
 	{
 		UpdateNPC(gameData->npcs[i], gameData->player, time);
+
+		if (!IsOnRoad(gameData->npcs[i]->position))
+			KillCar(gameData->npcs[i], time);
 
 		if (gameData->npcs[i]->AnimateDeath(time) ||
 			fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= NPC_DELETE_DISTANCE)
@@ -826,9 +851,8 @@ void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* inp
 	}
 
 	ResolveCollisions(gameData, time);
-
-	NPCSpawning(gameData, bitmaps, time);
 }
+
 
 void UpdateInputs(Input* input, SDL_Event event)
 {
@@ -842,7 +866,8 @@ void UpdateInputs(Input* input, SDL_Event event)
 		else if (event.key.keysym.sym == SDLK_LEFT) input->left = true;
 		else if (event.key.keysym.sym == SDLK_RIGHT) input->right = true;
 		else if (event.key.keysym.sym == SDLK_SPACE) input->shoot = true;
-		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // debug info is toggled on keypress
+		else if (event.key.keysym.sym == SDLK_p) input->pause = true;
+		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // toggled on keypress
 		break;
 	case SDL_KEYUP:
 		if (event.key.keysym.sym == SDLK_UP) input->up = false;
@@ -858,14 +883,14 @@ void UpdateInputs(Input* input, SDL_Event event)
 }
 
 
-
 void MeasureTime(Time* time)
 {
 	time->timeCounterCurrent = SDL_GetPerformanceCounter();
 	time->delta = ((double)(time->timeCounterCurrent - time->timeCounterPrevious) / (double)SDL_GetPerformanceFrequency());
 	time->timeCounterPrevious = time->timeCounterCurrent;
 
-	time->time += time->delta;
+	if (!time->paused)
+		time->time += time->delta;
 
 
 	// measure the FPS
@@ -971,16 +996,14 @@ int main(int argc, char** argv)
 		{
 			MeasureTime(&time);
 
-			GameUpdate(time, &gameData, bitmaps, &input);
+			if (!time.paused)
+				GameUpdate(time, &gameData, bitmaps, &input);
 
 			DrawGameObjects(screen, &gameData);
-
 			DrawUI(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
 
 			if (input.showDebug)
 				DrawDebugInfo(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
-
-
 
 			SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
 			// SDL_RenderClear(renderer);
@@ -988,20 +1011,24 @@ int main(int argc, char** argv)
 			SDL_RenderPresent(renderer);
 
 			// handling of events (if there were any)
+			input.pause = false;
 			while (SDL_PollEvent(&event))
 			{
 				UpdateInputs(&input, event);
 			}
 
+			if (input.pause)
+				time.paused = !time.paused;
+
+			printf("input: %d, paused: %d\n", input.pause, time.paused);
+
 			if (input.quit)
-			{
 				quit = 1;
-			}
 
 			// limit the FPS
 			if (FPS_LIMIT > 0)
 			{
-				SDL_Delay((int)(1000.0 / FPS_LIMIT - time.delta));
+				SDL_Delay(__max(1000.0 / (FPS_LIMIT) - time.delta, 0));
 			}
 			
 			time.frames++;
