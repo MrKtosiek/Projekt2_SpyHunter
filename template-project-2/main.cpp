@@ -10,7 +10,7 @@ extern "C" {
 }
 
 
-#define FULLSCREEN false
+#define FULLSCREEN true
 #define WINDOW_TITLE "Filip Jezierski 196333"
 #define SCREEN_WIDTH 480
 #define SCREEN_HEIGHT 320
@@ -22,44 +22,61 @@ extern "C" {
 #define STRING_BUFFER_SIZE 128
 
 
+#define SAVE_FILE "saves.txt"
+
 //////////////////////////////////////////////////////////////////////////////////////
 // GAMEPLAY CONSTANTS
 
 #define CAR_SIZE { 14, 20 }
-#define PLAYER_Y_POS 240
+#define PLAYER_Y_POS 200
 
 // the player is given SCORE_PER_DISTANCE points per each DISTANCE_TO_SCORE travelled
+#define SCORE_PER_ENEMY_KILL 300
 #define SCORE_PER_DISTANCE 50
-#define SCORE_PENALTY_DURATION 10
+#define SCORE_PENALTY_DURATION 3
 #define DISTANCE_TO_SCORE SCREEN_HEIGHT
 
 // value between 0 and 1
 #define COLLISION_BOUNCE 1
-#define COLLISION_KILL_SPEED 200
-#define EXPLOSION_FRICTION 200
+#define COLLISION_KILL_SPEED 150
+#define EXPLOSION_FRICTION 500
 
 #define DEATH_ANIM_DURATION 0.3
 
+#define INFINITE_LIVES_DURATION 20
+#define POINTS_PER_LIFE 5000
+
+
+
 // player stats
 #define PLAYER_MAX_SPEED 800
+#define PLAYER_START_POS SCREEN_HEIGHT + 20
+#define PLAYER_START_SPEED 200
 #define PLAYER_MIN_SPEED 400
-#define PLAYER_MAX_SPEED_SIDES 400
+#define PLAYER_MAX_SPEED_SIDES 300
 #define PLAYER_ACCEL 800
-#define PLAYER_ACCEL_SIDES 2000
+#define PLAYER_ACCEL_SIDES 3000
+#define PLAYER_IDLE_ACCEL_SIDES 2000
 
 #define PLAYER_GUN_RANGE 150
-#define PLAYER_FIRE_INTERVAL 0.1
+#define PLAYER_FIRE_INTERVAL 0.07
+#define MAX_BULLETS 16
+#define BULLET_SIZE { 4, 10 }
+#define BULLET_SPEED 500
+
 
 // enemy stats
+#define ENEMY_HP 4
 #define ENEMY_TARGET_DISTANCE 40
 #define ENEMY_MAX_SPEED 700
 #define ENEMY_MIN_SPEED 300
-#define ENEMY_MAX_SPEED_SIDES 400
+#define ENEMY_MAX_SPEED_SIDES 300
 #define ENEMY_ACCEL 400
 #define ENEMY_ACCEL_SIDES 1000
-#define ENEMY_BRAKING 300
+#define ENEMY_BRAKING 150
 
 // civilian stats
+#define CIVILIAN_HP 2
 #define CIVILIAN_SPEED 500
 #define CIVILIAN_ACCEL 400
 #define CIVILIAN_ACCEL_SIDES 1000
@@ -364,6 +381,7 @@ enum BitmapData
 	BMP_CIVILIAN_CAR,
 	BMP_EXPLOSION_0,
 	BMP_EXPLOSION_1,
+	BMP_BULLET,
 	BMP_BACKGROUND,
 	BMP_COUNT
 };
@@ -380,6 +398,7 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 	error |= !LoadBitmap(&bmps[BMP_CIVILIAN_CAR], "./sprites/civilian_car.bmp");
 	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_0], "./sprites/explosion_0.bmp");
 	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_1], "./sprites/explosion_1.bmp");
+	error |= !LoadBitmap(&bmps[BMP_BULLET], "./sprites/bullet.bmp");
 	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/grass.bmp");
 
 	if (error)
@@ -416,17 +435,21 @@ struct GameData;
 class GameObject
 {
 public:
+	bool visible = true;
 	Vector2 position = {};
 	Vector2 size = {};
 	SDL_Surface* sprite = NULL;
 	
 	virtual void Draw(SDL_Surface* screen)
 	{
+		if (!visible) return;
+
 		if (sprite == NULL)
 		{
 			printf("Error while drawing GameObject: sprite is NULL\n");
 			return;
 		}
+
 		DrawSurface(screen, sprite, position.x, position.y);
 	}
 };
@@ -468,7 +491,10 @@ public:
 	double distanceCounter = 0;
 	double scoringDistanceCounter = 0;
 	double nextShootTime = 0;
+	double scorePenalty = 0;
 	int score = 0;
+	int lifeScoreCounter = 0;
+	int lives = 0;
 };
 
 class NPC : public Car
@@ -480,10 +506,13 @@ public:
 
 struct GameData
 {
+	double gameOverTime = 0;
+
 	// game objects
 	Player* player = NULL;
 	int npcCount = 0;
 	NPC* npcs[MAX_NPCS] = {};
+	GameObject* bullets[MAX_BULLETS] = {};
 
 	GameObject* background = NULL;
 
@@ -536,10 +565,12 @@ void CreateNPC(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos, NPCType t
 	case ENEMY:
 		npc->speed = { 0, -ENEMY_MAX_SPEED };
 		npc->sprite = bitmaps[BMP_ENEMY_CAR];
+		npc->health = ENEMY_HP;
 		break;
 	case CIVILIAN:
 		npc->speed = { 0, -CIVILIAN_SPEED };
 		npc->sprite = bitmaps[BMP_CIVILIAN_CAR];
+		npc->health = CIVILIAN_HP;
 		break;
 	default:
 		break;
@@ -570,7 +601,17 @@ void DeleteNPC(GameData* gameData, int npcIndex)
 void KillCar(Car* car, Time time)
 {
 	if (!car->IsDead())
+	{
 		car->deathTime = time.time;
+	}
+}
+void DamageNPC(int damage, NPC* npc, Time time)
+{
+	npc->health -= damage;
+	if (npc->health <= 0)
+	{
+		KillCar(npc, time);
+	}
 }
 
 void PlayerSteering(Player* player, Time time, Input* input)
@@ -583,21 +624,34 @@ void PlayerSteering(Player* player, Time time, Input* input)
 	if (input->right) steering.x++;
 
 	// accelerate / decelerate and steer the car
-	MoveTowards(&player->speed.x, 
-		steering.x * CalculateMaxSideSpeed(-player->speed.y, PLAYER_MAX_SPEED, PLAYER_MAX_SPEED_SIDES),
-		time.delta * PLAYER_ACCEL_SIDES);
+	if (steering.x == 0)
+		MoveTowards(&player->speed.x, 0, time.delta * PLAYER_IDLE_ACCEL_SIDES);
+	else
+		MoveTowards(&player->speed.x, 
+			steering.x * CalculateMaxSideSpeed(-player->speed.y, PLAYER_MAX_SPEED, PLAYER_MAX_SPEED_SIDES),
+			time.delta * PLAYER_ACCEL_SIDES);
+
 	player->speed.y += steering.y * time.delta * PLAYER_ACCEL;
 	player->speed.y = Clamp(player->speed.y, -PLAYER_MAX_SPEED, -PLAYER_MIN_SPEED);
 
 	// the player doesn't move along the y axis, the rest of the world does
 	player->position.x += player->speed.x * time.delta;
-	player->position.y = PLAYER_Y_POS;
+	MoveTowards(&player->position.y, PLAYER_Y_POS, time.delta * PLAYER_START_SPEED);
 }
 
-void PlayerShoot(GameData* gameData, Time time)
+void PlayerShoot(GameObject* bullets[MAX_BULLETS], Vector2 pos)
 {
-	printf("Shoot! %d\n", gameData->player);
-	Player* player = gameData->player;
+	for (int i = 0; i < MAX_BULLETS; i++)
+	{
+		if (!bullets[i]->visible)
+		{
+			bullets[i]->visible = true;
+			bullets[i]->position = pos;
+			break;
+		}
+	}
+
+	/*Player* player = gameData->player;
 	for (int i = 0; i < gameData->npcCount; i++)
 	{
 		NPC* npc = gameData->npcs[i];
@@ -611,7 +665,7 @@ void PlayerShoot(GameData* gameData, Time time)
 				KillCar(npc, time);
 			}
 		}
-	}
+	}*/
 }
 void PlayerShooting(GameData* gameData, Time time, Input* input)
 {
@@ -619,20 +673,35 @@ void PlayerShooting(GameData* gameData, Time time, Input* input)
 	{
 		gameData->player->nextShootTime = time.time + PLAYER_FIRE_INTERVAL;
 
-		PlayerShoot(gameData, time);
+		PlayerShoot(gameData->bullets, gameData->player->position);
 	}
 }
 
+void AddScore(int points, Player* player, Time time)
+{
+	if (player->scorePenalty <= time.time)
+	{
+		player->score += points;
+
+		player->lifeScoreCounter += points;
+		if (player->lifeScoreCounter >= POINTS_PER_LIFE)
+		{
+			player->lives++;
+			player->lifeScoreCounter -= POINTS_PER_LIFE;
+		}
+	}
+}
 void CountScorePerDistance(Player* player, Time time)
 {
 	// count the score based on distance
 	player->scoringDistanceCounter -= player->speed.y * time.delta;
 	if (player->scoringDistanceCounter >= DISTANCE_TO_SCORE)
 	{
-		player->score += SCORE_PER_DISTANCE;
+		AddScore(SCORE_PER_DISTANCE, player, time);
 		player->scoringDistanceCounter = 0;
 	}
 }
+
 
 void EnemyAI(NPC* npc, Player* player, Time time)
 {
@@ -705,7 +774,6 @@ double GetRandomPosOnRoad()
 {
 	return RandRange(SCREEN_WIDTH * 0.3, SCREEN_WIDTH * 0.7);
 }
-
 void NPCSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 {
 	if (gameData->nextNPCSpawnTick <= time.time)
@@ -733,6 +801,11 @@ Vector2 CalculateOverlap(GameObject* go1, GameObject* go2)
 	overlap.x = (go1->size.x + go2->size.x) * 0.5 - fabs(go1->position.x - go2->position.x);
 	overlap.y = (go1->size.y + go2->size.y) * 0.5 - fabs(go1->position.y - go2->position.y);
 	return overlap;
+}
+bool IsOverlapping(GameObject* go1, GameObject* go2)
+{
+	Vector2 overlap = CalculateOverlap(go1, go2);
+	return overlap.x > 0 && overlap.y > 0;
 }
 
 void CheckCollision(Car* car1, Car* car2, Time time)
@@ -775,7 +848,6 @@ void CheckCollision(Car* car1, Car* car2, Time time)
 		}
 	}
 }
-
 void ResolveCollisions(GameData* gameData, Time time)
 {
 	for (int i = 0; i < gameData->npcCount; i++)
@@ -789,7 +861,121 @@ void ResolveCollisions(GameData* gameData, Time time)
 	}
 }
 
+bool IsGameOver(GameData* gameData)
+{
+	return gameData->gameOverTime != 0;
+}
+void GameOver(GameData* gameData, Time time)
+{
+	printf("GAME OVER!\n");
+	gameData->gameOverTime = time.time;
+	gameData->player->speed.y = 0;
+}
 
+
+void RespawnPlayer(GameData* gameData, SDL_Surface** bitmaps)
+{
+	if (gameData->player->lives > 0)
+		gameData->player->lives--;
+
+	gameData->player->deathTime = 0;
+	gameData->player->sprite = bitmaps[BMP_PLAYER_CAR];
+	gameData->player->position = { SCREEN_WIDTH / 2, PLAYER_START_POS };
+	gameData->player->speed = {};
+}
+
+
+void UpdatePlayer(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
+{
+	if (!IsOnRoad(gameData->player->position))
+		KillCar(gameData->player, time);
+
+	if (!gameData->player->IsDead())
+	{
+		PlayerSteering(gameData->player, time, input);
+		PlayerShooting(gameData, time, input);
+
+		MoveBackground(gameData->background, gameData->player->speed.y, time);
+
+		CountScorePerDistance(gameData->player, time);
+
+
+	}
+	else
+	{
+		gameData->player->speed.y = 0;
+		if (gameData->player->lives > 0 || time.time < INFINITE_LIVES_DURATION)
+		{
+			if (gameData->player->AnimateDeath(time))
+			{
+				RespawnPlayer(gameData, bitmaps);
+			}
+		}
+		else
+		{
+			if (gameData->player->AnimateDeath(time))
+				gameData->player->visible = false;
+
+			if (!IsGameOver(gameData))
+				GameOver(gameData, time);
+		}
+	}
+}
+void UpdateNPCs(Time time, GameData* gameData)
+{
+	for (int i = 0; i < gameData->npcCount; i++)
+	{
+		UpdateNPC(gameData->npcs[i], gameData->player, time);
+
+		if (!IsOnRoad(gameData->npcs[i]->position))
+			KillCar(gameData->npcs[i], time);
+
+		if (gameData->npcs[i]->AnimateDeath(time))
+		{
+			switch (gameData->npcs[i]->type)
+			{
+			case ENEMY:
+				AddScore(SCORE_PER_ENEMY_KILL, gameData->player, time);
+				break;
+			case CIVILIAN:
+				gameData->player->scorePenalty = time.time + SCORE_PENALTY_DURATION;
+				break;
+			default:
+				break;
+			}
+
+			DeleteNPC(gameData, i);
+		}
+		else if (fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= NPC_DELETE_DISTANCE)
+		{
+			DeleteNPC(gameData, i);
+		}
+	}
+
+}
+void UpdateBullets(Time time, GameData* gameData)
+{
+	for (int i = 0; i < MAX_BULLETS; i++)
+	{
+		if (!gameData->bullets[i]->visible) continue;
+
+		gameData->bullets[i]->position.y -= time.delta * BULLET_SPEED;
+
+		for (int j = 0; j < gameData->npcCount; j++)
+		{
+			if (IsOverlapping(gameData->bullets[i], gameData->npcs[j]))
+			{
+				DamageNPC(1, gameData->npcs[j], time);
+				gameData->bullets[i]->visible = false;
+				break;
+			}
+		}
+		if (fabs(gameData->bullets[i]->position.y - gameData->player->position.y) > PLAYER_GUN_RANGE)
+		{
+			gameData->bullets[i]->visible = false;
+		}
+	}
+}
 
 // create all necessary GameObjects
 void GameStart(GameData* gameData, SDL_Surface** bitmaps)
@@ -803,52 +989,32 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 
 	Player* player = new Player();
 	player->sprite = bitmaps[BMP_PLAYER_CAR];
+	player->lives = 0;
 	player->deathTime = 0;
 	player->explosion0 = bitmaps[BMP_EXPLOSION_0];
 	player->explosion1 = bitmaps[BMP_EXPLOSION_1];
-	player->position = { SCREEN_WIDTH / 2, PLAYER_Y_POS };
+	player->position = { SCREEN_WIDTH / 2, PLAYER_START_POS };
 	player->size = CAR_SIZE;
 	gameData->player = player;
+
+	for (int i = 0; i < MAX_BULLETS; i++)
+	{
+		GameObject* bullet = new GameObject();
+		bullet->visible = false;
+		bullet->sprite = bitmaps[BMP_BULLET];
+		bullet->size = BULLET_SIZE;
+		gameData->bullets[i] = bullet;
+	}
 }
 
 void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
 {
-	if (!IsOnRoad(gameData->player->position))
-		KillCar(gameData->player, time);
+	UpdatePlayer(time, gameData, bitmaps, input);
+	UpdateNPCs(time, gameData);
+	UpdateBullets(time, gameData);
 
 	if (!gameData->player->IsDead())
-	{
-		PlayerSteering(gameData->player, time, input);
-		PlayerShooting(gameData, time, input);
-
-		MoveBackground(gameData->background, gameData->player->speed.y, time);
-
 		NPCSpawning(gameData, bitmaps, time);
-	}
-	else
-	{
-		// game over
-		gameData->player->AnimateDeath(time);
-		gameData->player->speed.y = 0;
-
-	}
-
-	//printf("\nNPCs: %d ", gameData->npcCount);
-	for (int i = 0; i < gameData->npcCount; i++)
-	{
-		UpdateNPC(gameData->npcs[i], gameData->player, time);
-
-		if (!IsOnRoad(gameData->npcs[i]->position))
-			KillCar(gameData->npcs[i], time);
-
-		if (gameData->npcs[i]->AnimateDeath(time) ||
-			fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= NPC_DELETE_DISTANCE)
-		{
-			DeleteNPC(gameData, i);
-		}
-
-		//printf("[I: %d, (%.0f, %.0f)]", i, gameData->npcs[i]->position.x, gameData->npcs[i]->position.y);
-	}
 
 	ResolveCollisions(gameData, time);
 }
@@ -908,6 +1074,32 @@ void MeasureTime(Time* time)
 
 
 //////////////////////////////////////////////////////////////////////////////////////
+// SAVING
+
+void WriteIntToFile(int value, FILE* file, char* stringBuffer, const char* label)
+{
+	itoa(value, stringBuffer, 10);
+	fprintf(file, stringBuffer);
+	fprintf(file, " #");
+	fprintf(file, label);
+}
+
+void SaveGame(GameData* gameData, Time time)
+{
+	char stringBuffer[STRING_BUFFER_SIZE] = "";
+	FILE* file = fopen(SAVE_FILE, "a");
+
+	WriteIntToFile(gameData->player->position.x, file, stringBuffer, "player x");
+	WriteIntToFile(gameData->player->position.y, file, stringBuffer, "player y");
+
+	fclose(file);
+}
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
 // GAME VISUALS
 
 void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
@@ -920,14 +1112,49 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 	{
 		gameData->npcs[i]->Draw(screen);
 	}
+
+	for (int i = 0; i < MAX_BULLETS; i++)
+	{
+		gameData->bullets[i]->Draw(screen);
+	}
 }
 
 void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
 {
 	DrawString(screen, { 0,10 }, WINDOW_TITLE, charset, UPPER_CENTER);
-	sprintf(stringBuffer, "Time: %.2f Score: %d", time.time, gameData->player->score);
-	DrawString(screen, { 0,30 }, stringBuffer, charset, UPPER_CENTER);
-	DrawString(screen, { 0,-20 }, "No points!", charset, LOWER_CENTER);
+
+	if (!IsGameOver(gameData))
+	{
+		sprintf(stringBuffer, "Time: %.2f Score: %d", time.time, gameData->player->score);
+		DrawString(screen, { 0,30 }, stringBuffer, charset, UPPER_CENTER);
+
+		if (time.time >= INFINITE_LIVES_DURATION)
+		{
+			sprintf(stringBuffer, "Lives: %d", gameData->player->lives);
+			DrawString(screen, { 0,50 }, stringBuffer, charset, UPPER_CENTER);
+		}
+		else
+			DrawString(screen, { 0,50 }, "Lives: INF", charset, UPPER_CENTER);
+		
+		if (gameData->player->scorePenalty > time.time)
+			DrawString(screen, { 0,-20 }, "No points!", charset, LOWER_CENTER);
+	}
+	else
+	{
+		DrawString(screen, { 0,-40 }, "GAME OVER", charset, CENTER);
+
+		sprintf(stringBuffer, "Score: %d", gameData->player->score);
+		DrawString(screen, { 0,-20 }, stringBuffer, charset, CENTER);
+
+		sprintf(stringBuffer, "Time: %.2f", gameData->gameOverTime);
+		DrawString(screen, { 0,0 }, stringBuffer, charset, CENTER);
+
+
+		DrawString(screen, { 0,-40 }, "N - new game  ", charset, LOWER_CENTER);
+		DrawString(screen, { 0,-10 }, "L - load game ", charset, LOWER_CENTER);
+		DrawString(screen, { 0,-25 }, "S - save score", charset, LOWER_CENTER);
+
+	}
 }
 
 void DrawDebugInfo(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
@@ -1019,8 +1246,6 @@ int main(int argc, char** argv)
 
 			if (input.pause)
 				time.paused = !time.paused;
-
-			printf("input: %d, paused: %d\n", input.pause, time.paused);
 
 			if (input.quit)
 				quit = 1;
