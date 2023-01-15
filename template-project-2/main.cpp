@@ -142,6 +142,7 @@ struct Input
 	bool pause;
 	bool newGame;
 	bool saveScore;
+	bool switchScoreSorting;
 
 	bool up;
 	bool down;
@@ -1039,6 +1040,7 @@ void UpdateInputs(Input* input, SDL_Event event)
 		else if (event.key.keysym.sym == SDLK_SPACE) input->shoot = true;
 		else if (event.key.keysym.sym == SDLK_p) input->pause = true;
 		else if (event.key.keysym.sym == SDLK_s) input->saveScore = true;
+		else if (event.key.keysym.sym == SDLK_t) input->switchScoreSorting = true;
 		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // toggled on keypress
 		break;
 	case SDL_KEYUP:
@@ -1128,7 +1130,37 @@ void ScrollLeaderboard(Leaderboard* leaderboard, Input input, Time time)
 
 void SortLeaderboard(Leaderboard* leaderboard)
 {
-
+	Highscore temp = {};
+	if (leaderboard->sortMode == SORT_BY_SCORE)
+	{
+		for (int i = 0; i < leaderboard->scoreCount - 1; i++)
+		{
+			for (int j = 0; j < leaderboard->scoreCount - i - 1; j++)
+			{
+				if (leaderboard->highscores[j].score < leaderboard->highscores[j + 1].score)
+				{
+					temp = leaderboard->highscores[j];
+					leaderboard->highscores[j] = leaderboard->highscores[j + 1];
+					leaderboard->highscores[j + 1] = temp;
+				}
+			}
+		}
+	}
+	if (leaderboard->sortMode == SORT_BY_TIME)
+	{
+		for (int i = 0; i < leaderboard->scoreCount - 1; i++)
+		{
+			for (int j = 0; j < leaderboard->scoreCount - i - 1; j++)
+			{
+				if (leaderboard->highscores[j].time < leaderboard->highscores[j + 1].time)
+				{
+					temp = leaderboard->highscores[j];
+					leaderboard->highscores[j] = leaderboard->highscores[j + 1];
+					leaderboard->highscores[j + 1] = temp;
+				}
+			}
+		}
+	}
 }
 
 bool AddScoreToLeaderboard(Leaderboard* leaderboard, Highscore score)
@@ -1170,6 +1202,7 @@ void SaveScore(Leaderboard* leaderboard, int score, double time)
 	fclose(file);
 
 	AddScoreToLeaderboard(leaderboard, highscore);
+	SortLeaderboard(leaderboard);
 }
 
 bool LoadLeaderboard(Leaderboard* leaderboard)
@@ -1192,6 +1225,9 @@ bool LoadLeaderboard(Leaderboard* leaderboard)
 	}
 
 	fclose(file);
+
+	SortLeaderboard(leaderboard);
+
 	return true;
 }
 
@@ -1361,8 +1397,27 @@ int main(int argc, char** argv)
 			if (input.showDebug)
 				DrawDebugInfo(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
 
+			if (input.switchScoreSorting)
+			{
+				if (leaderboard.sortMode == SORT_BY_SCORE)
+					leaderboard.sortMode = SORT_BY_TIME;
+				else
+					leaderboard.sortMode = SORT_BY_SCORE;
+
+				SortLeaderboard(&leaderboard);
+			}
+
 			if (time.paused || IsGameOver(&gameData))
 				ScrollLeaderboard(&leaderboard, input, time);
+
+			if (!scoreSaved && IsGameOver(&gameData) && input.saveScore)
+			{
+				SaveScore(&leaderboard, gameData.player->score, gameData.gameOverTime);
+				scoreSaved = true;
+			}
+
+			if (input.pause)
+				time.paused = !time.paused;
 
 
 			SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
@@ -1373,19 +1428,11 @@ int main(int argc, char** argv)
 			// handling of events (if there were any)
 			input.pause = false;
 			input.saveScore = false;
+			input.switchScoreSorting = false;
 			while (SDL_PollEvent(&event))
 			{
 				UpdateInputs(&input, event);
 			}
-
-			if (!scoreSaved && IsGameOver(&gameData) && input.saveScore)
-			{
-				SaveScore(&leaderboard, gameData.player->score, gameData.gameOverTime);
-				scoreSaved = true;
-			}
-
-			if (input.pause)
-				time.paused = !time.paused;
 
 			if (input.quit)
 				quit = 1;
