@@ -22,7 +22,10 @@ extern "C" {
 #define STRING_BUFFER_SIZE 128
 
 
-#define SAVE_FILE "saves.txt"
+#define HIGHSCORES_FILE "highscores.txt"
+#define LEADERBOARD_LENGTH 20
+#define LEADERBOARD_SCROLL_DELAY 0.02
+
 
 //////////////////////////////////////////////////////////////////////////////////////
 // GAMEPLAY CONSTANTS
@@ -43,7 +46,7 @@ extern "C" {
 
 #define DEATH_ANIM_DURATION 0.3
 
-#define INFINITE_LIVES_DURATION 20
+#define INFINITE_LIVES_DURATION 10
 #define POINTS_PER_LIFE 5000
 
 
@@ -123,6 +126,7 @@ struct Time
 {
 	long timeCounterCurrent, timeCounterPrevious;
 	double time;
+	double gametime;
 	double delta;
 	bool paused;
 
@@ -137,6 +141,7 @@ struct Input
 	bool quit;
 	bool pause;
 	bool newGame;
+	bool saveScore;
 
 	bool up;
 	bool down;
@@ -473,11 +478,11 @@ public:
 	{
 		if (deathTime > 0)
 		{
-			if (time.time >= deathTime + DEATH_ANIM_DURATION)
+			if (time.gametime >= deathTime + DEATH_ANIM_DURATION)
 				return true; 
-			else if (time.time >= deathTime + DEATH_ANIM_DURATION / 2)
+			else if (time.gametime >= deathTime + DEATH_ANIM_DURATION / 2)
 				sprite = explosion1;
-			else if (time.time >= deathTime)
+			else if (time.gametime >= deathTime)
 				sprite = explosion0;
 		}
 
@@ -602,7 +607,7 @@ void KillCar(Car* car, Time time)
 {
 	if (!car->IsDead())
 	{
-		car->deathTime = time.time;
+		car->deathTime = time.gametime;
 	}
 }
 void DamageNPC(int damage, NPC* npc, Time time)
@@ -669,9 +674,9 @@ void PlayerShoot(GameObject* bullets[MAX_BULLETS], Vector2 pos)
 }
 void PlayerShooting(GameData* gameData, Time time, Input* input)
 {
-	if (input->shoot && gameData->player->nextShootTime <= time.time)
+	if (input->shoot && gameData->player->nextShootTime <= time.gametime)
 	{
-		gameData->player->nextShootTime = time.time + PLAYER_FIRE_INTERVAL;
+		gameData->player->nextShootTime = time.gametime + PLAYER_FIRE_INTERVAL;
 
 		PlayerShoot(gameData->bullets, gameData->player->position);
 	}
@@ -679,7 +684,7 @@ void PlayerShooting(GameData* gameData, Time time, Input* input)
 
 void AddScore(int points, Player* player, Time time)
 {
-	if (player->scorePenalty <= time.time)
+	if (player->scorePenalty <= time.gametime)
 	{
 		player->score += points;
 
@@ -776,9 +781,9 @@ double GetRandomPosOnRoad()
 }
 void NPCSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 {
-	if (gameData->nextNPCSpawnTick <= time.time)
+	if (gameData->nextNPCSpawnTick <= time.gametime)
 	{
-		gameData->nextNPCSpawnTick = time.time + NPC_SPAWN_TICK_INTERVAL;
+		gameData->nextNPCSpawnTick = time.gametime + NPC_SPAWN_TICK_INTERVAL;
 
 		if (RandVal() < (1.0 / (__max(gameData->npcCount, 1))))
 		{
@@ -868,7 +873,7 @@ bool IsGameOver(GameData* gameData)
 void GameOver(GameData* gameData, Time time)
 {
 	printf("GAME OVER!\n");
-	gameData->gameOverTime = time.time;
+	gameData->gameOverTime = time.gametime;
 	gameData->player->speed.y = 0;
 }
 
@@ -904,7 +909,7 @@ void UpdatePlayer(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* i
 	else
 	{
 		gameData->player->speed.y = 0;
-		if (gameData->player->lives > 0 || time.time < INFINITE_LIVES_DURATION)
+		if (gameData->player->lives > 0 || time.gametime < INFINITE_LIVES_DURATION)
 		{
 			if (gameData->player->AnimateDeath(time))
 			{
@@ -938,7 +943,7 @@ void UpdateNPCs(Time time, GameData* gameData)
 				AddScore(SCORE_PER_ENEMY_KILL, gameData->player, time);
 				break;
 			case CIVILIAN:
-				gameData->player->scorePenalty = time.time + SCORE_PENALTY_DURATION;
+				gameData->player->scorePenalty = time.gametime + SCORE_PENALTY_DURATION;
 				break;
 			default:
 				break;
@@ -963,7 +968,7 @@ void UpdateBullets(Time time, GameData* gameData)
 
 		for (int j = 0; j < gameData->npcCount; j++)
 		{
-			if (IsOverlapping(gameData->bullets[i], gameData->npcs[j]))
+			if (!gameData->npcs[j]->IsDead() && IsOverlapping(gameData->bullets[i], gameData->npcs[j]))
 			{
 				DamageNPC(1, gameData->npcs[j], time);
 				gameData->bullets[i]->visible = false;
@@ -1033,6 +1038,7 @@ void UpdateInputs(Input* input, SDL_Event event)
 		else if (event.key.keysym.sym == SDLK_RIGHT) input->right = true;
 		else if (event.key.keysym.sym == SDLK_SPACE) input->shoot = true;
 		else if (event.key.keysym.sym == SDLK_p) input->pause = true;
+		else if (event.key.keysym.sym == SDLK_s) input->saveScore = true;
 		else if (event.key.keysym.sym == SDLK_F3) input->showDebug = !input->showDebug; // toggled on keypress
 		break;
 	case SDL_KEYUP:
@@ -1055,8 +1061,9 @@ void MeasureTime(Time* time)
 	time->delta = ((double)(time->timeCounterCurrent - time->timeCounterPrevious) / (double)SDL_GetPerformanceFrequency());
 	time->timeCounterPrevious = time->timeCounterCurrent;
 
+	time->time += time->delta;
 	if (!time->paused)
-		time->time += time->delta;
+		time->gametime += time->delta;
 
 
 	// measure the FPS
@@ -1076,25 +1083,117 @@ void MeasureTime(Time* time)
 //////////////////////////////////////////////////////////////////////////////////////
 // SAVING
 
+struct Highscore
+{
+	int score;
+	int time; // in miliseconds
+};
+
+enum LeaderboardSortMode
+{
+	SORT_BY_SCORE,
+	SORT_BY_TIME
+};
+
+struct Leaderboard
+{
+	LeaderboardSortMode sortMode = SORT_BY_SCORE;
+	int displayOffset = 0;
+	double nextScrollTime = 0;
+	int arrayCapacity = 0;
+	int scoreCount = 0;
+	Highscore* highscores = NULL;
+};
+
+void ScrollLeaderboard(Leaderboard* leaderboard, Input input, Time time)
+{
+	if ((input.up || input.down) &&
+		time.time >= leaderboard->nextScrollTime)
+	{
+		leaderboard->nextScrollTime = time.time + LEADERBOARD_SCROLL_DELAY;
+
+		if (input.up)
+			leaderboard->displayOffset--;
+		if (input.down)
+			leaderboard->displayOffset++;
+
+
+		if (leaderboard->displayOffset > leaderboard->scoreCount - LEADERBOARD_LENGTH)
+			leaderboard->displayOffset = leaderboard->scoreCount - LEADERBOARD_LENGTH;
+
+		if (leaderboard->displayOffset < 0)
+			leaderboard->displayOffset = 0;
+	}
+}
+
+void SortLeaderboard(Leaderboard* leaderboard)
+{
+
+}
+
+bool AddScoreToLeaderboard(Leaderboard* leaderboard, Highscore score)
+{
+	leaderboard->scoreCount++;
+	if (leaderboard->scoreCount > leaderboard->arrayCapacity)
+	{
+		leaderboard->arrayCapacity *= 2;
+		leaderboard->highscores = (Highscore*)realloc(leaderboard->highscores, sizeof(Highscore) * leaderboard->arrayCapacity);
+		if (leaderboard->highscores == NULL)
+		{
+			printf("Ran out of memory when saving the highscore!\n");
+			return false;
+		}
+	}
+	leaderboard->highscores[leaderboard->scoreCount - 1] = score;
+
+	return true;
+}
+
 void WriteIntToFile(int value, FILE* file, char* stringBuffer, const char* label)
 {
 	itoa(value, stringBuffer, 10);
 	fprintf(file, stringBuffer);
 	fprintf(file, " #");
 	fprintf(file, label);
+	fprintf(file, "\n");
 }
 
-void SaveGame(GameData* gameData, Time time)
+void SaveScore(Leaderboard* leaderboard, int score, double time)
 {
 	char stringBuffer[STRING_BUFFER_SIZE] = "";
-	FILE* file = fopen(SAVE_FILE, "a");
+	FILE* file = fopen("highscores.txt", "a");
 
-	WriteIntToFile(gameData->player->position.x, file, stringBuffer, "player x");
-	WriteIntToFile(gameData->player->position.y, file, stringBuffer, "player y");
+	Highscore highscore = { score, (int)(time * 1000) };
+	WriteIntToFile(highscore.score, file, stringBuffer, "score");
+	WriteIntToFile(highscore.time, file, stringBuffer, "time");
 
 	fclose(file);
+
+	AddScoreToLeaderboard(leaderboard, highscore);
 }
 
+bool LoadLeaderboard(Leaderboard* leaderboard)
+{
+	leaderboard->arrayCapacity = 1;
+	leaderboard->highscores = (Highscore*)malloc(sizeof(Highscore));
+
+	char stringBuffer[STRING_BUFFER_SIZE] = "";
+	FILE* file = fopen(HIGHSCORES_FILE, "r");
+
+	while (fgets(stringBuffer, STRING_BUFFER_SIZE, file))
+	{
+		Highscore highscore = {};
+		highscore.score = atoi(stringBuffer);
+		fgets(stringBuffer, STRING_BUFFER_SIZE, file);
+		highscore.time = atoi(stringBuffer);
+
+		if (!AddScoreToLeaderboard(leaderboard, highscore))
+			return false;
+	}
+
+	fclose(file);
+	return true;
+}
 
 
 
@@ -1119,16 +1218,35 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 	}
 }
 
-void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* charset, char* stringBuffer)
+void DrawLeaderboard(SDL_Surface* screen, Leaderboard leaderboard, SDL_Surface* charset, char* stringBuffer)
+{
+	DrawString(screen, { 5,-90 }, "Highscores:", charset, MIDDLE_LEFT);
+	if (leaderboard.sortMode == SORT_BY_SCORE)
+		DrawString(screen, { 5,-78 }, "(Sorted by score)", charset, MIDDLE_LEFT);
+	else
+		DrawString(screen, { 5,-78 }, "(Sorted by time)", charset, MIDDLE_LEFT);
+	for (int i = 0; 
+		i < LEADERBOARD_LENGTH &&
+		i + leaderboard.displayOffset < leaderboard.scoreCount;
+		i++)
+	{
+		int index = i + leaderboard.displayOffset;
+		sprintf(stringBuffer, "%3d.%7.2f %6.0d", index + 1, leaderboard.highscores[index].time * 0.001, leaderboard.highscores[index].score);
+		DrawString(screen, { 2,(double)(-65 + i * 10) }, stringBuffer, charset, MIDDLE_LEFT);
+	}
+}
+void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, Leaderboard leaderboard, SDL_Surface* charset, char* stringBuffer)
 {
 	DrawString(screen, { 0,10 }, WINDOW_TITLE, charset, UPPER_CENTER);
+	DrawString(screen, { -5,-5 }, "ABCDEFIJKLM", charset, LOWER_RIGHT);
+
 
 	if (!IsGameOver(gameData))
 	{
-		sprintf(stringBuffer, "Time: %.2f Score: %d", time.time, gameData->player->score);
+		sprintf(stringBuffer, "Time: %.2f Score: %d", time.gametime, gameData->player->score);
 		DrawString(screen, { 0,30 }, stringBuffer, charset, UPPER_CENTER);
 
-		if (time.time >= INFINITE_LIVES_DURATION)
+		if (time.gametime >= INFINITE_LIVES_DURATION)
 		{
 			sprintf(stringBuffer, "Lives: %d", gameData->player->lives);
 			DrawString(screen, { 0,50 }, stringBuffer, charset, UPPER_CENTER);
@@ -1136,7 +1254,7 @@ void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* cha
 		else
 			DrawString(screen, { 0,50 }, "Lives: INF", charset, UPPER_CENTER);
 		
-		if (gameData->player->scorePenalty > time.time)
+		if (gameData->player->scorePenalty > time.gametime)
 			DrawString(screen, { 0,-20 }, "No points!", charset, LOWER_CENTER);
 	}
 	else
@@ -1151,9 +1269,12 @@ void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, SDL_Surface* cha
 
 
 		DrawString(screen, { 0,-40 }, "N - new game  ", charset, LOWER_CENTER);
-		DrawString(screen, { 0,-10 }, "L - load game ", charset, LOWER_CENTER);
 		DrawString(screen, { 0,-25 }, "S - save score", charset, LOWER_CENTER);
+	}
 
+	if (time.paused || IsGameOver(gameData))
+	{
+		DrawLeaderboard(screen, leaderboard, charset, stringBuffer);
 	}
 }
 
@@ -1180,6 +1301,13 @@ int main(int argc, char** argv)
 
 	char stringBuffer[STRING_BUFFER_SIZE] = {};
 	int quit = 0;
+
+	Leaderboard leaderboard;
+	if (!LoadLeaderboard(&leaderboard))
+	{
+		printf("Couldn't load the leaderboard!\n");
+		return 1;
+	}
 
 	SDL_Surface* bitmaps[BMP_COUNT];
 
@@ -1209,6 +1337,7 @@ int main(int argc, char** argv)
 	{
 		Time time = {};
 		Input input = {};
+		bool scoreSaved = false; // this is to prevent saving the score multiple times
 
 		GameData gameData;
 		GameStart(&gameData, bitmaps);
@@ -1227,10 +1356,14 @@ int main(int argc, char** argv)
 				GameUpdate(time, &gameData, bitmaps, &input);
 
 			DrawGameObjects(screen, &gameData);
-			DrawUI(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
+			DrawUI(screen, &gameData, time, leaderboard, bitmaps[BMP_CHARSET], stringBuffer);
 
 			if (input.showDebug)
 				DrawDebugInfo(screen, &gameData, time, bitmaps[BMP_CHARSET], stringBuffer);
+
+			if (time.paused || IsGameOver(&gameData))
+				ScrollLeaderboard(&leaderboard, input, time);
+
 
 			SDL_UpdateTexture(scrtex, NULL, screen->pixels, screen->pitch);
 			// SDL_RenderClear(renderer);
@@ -1239,9 +1372,16 @@ int main(int argc, char** argv)
 
 			// handling of events (if there were any)
 			input.pause = false;
+			input.saveScore = false;
 			while (SDL_PollEvent(&event))
 			{
 				UpdateInputs(&input, event);
+			}
+
+			if (!scoreSaved && IsGameOver(&gameData) && input.saveScore)
+			{
+				SaveScore(&leaderboard, gameData.player->score, gameData.gameOverTime);
+				scoreSaved = true;
 			}
 
 			if (input.pause)
