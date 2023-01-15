@@ -1,32 +1,35 @@
 ﻿C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.CppBuild.targets(513,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (szablon2vs19.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   main.cpp
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(213,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(214,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(215,32): warning C4838: conversion from 'size_t' to 'double' requires a narrowing conversion
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(220,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(221,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(226,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(216,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(217,8): warning C4244: 'initializing': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(218,32): warning C4838: conversion from 'size_t' to 'double' requires a narrowing conversion
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(223,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(224,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
 D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(229,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
 D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(232,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(233,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(236,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(239,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(240,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(235,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(236,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(239,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(242,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
 D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(243,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
 D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(246,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(247,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(459,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(459,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1062,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1186,2): warning C4996: 'itoa': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _itoa. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1196,15): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1214,15): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1270,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1282,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1287,4): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1300,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1303,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1320,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1383,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
-D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1443,15): warning C4244: 'argument': conversion from 'double' to 'Uint32', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(249,34): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(250,26): warning C4244: '+=': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(449,51): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(449,39): warning C4244: 'argument': conversion from 'double' to 'int', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1118,54): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1242,2): warning C4996: 'itoa': The POSIX name for this item is deprecated. Instead, use the ISO C and C++ conformant name: _itoa. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1252,15): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1270,15): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1273,10): warning C4996: 'fopen': This function or variable may be unsafe. Consider using fopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1274,10): warning C4996: 'freopen': This function or variable may be unsafe. Consider using freopen_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1333,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1345,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1350,4): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1361,4): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1369,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1372,3): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1389,2): warning C4996: 'sprintf': This function or variable may be unsafe. Consider using sprintf_s instead. To disable deprecation, use _CRT_SECURE_NO_WARNINGS. See online help for details.
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1452,55): warning C4244: '=': conversion from 'Uint64' to 'long', possible loss of data
+D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\main.cpp(1512,15): warning C4244: 'argument': conversion from 'double' to 'Uint32', possible loss of data
   Projekt2_SpyHunter.vcxproj -> D:\Studia\PoP\Projekt2_SpyHunter\template-project-2\Debug\Projekt2_SpyHunter.exe

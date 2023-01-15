@@ -31,6 +31,7 @@ extern "C" {
 // GAMEPLAY CONSTANTS
 
 #define CAR_SIZE { 14, 20 }
+#define POWERUP_SIZE { 32, 32 }
 #define PLAYER_Y_POS 200
 
 // the player is given SCORE_PER_DISTANCE points per each DISTANCE_TO_SCORE travelled
@@ -62,10 +63,11 @@ extern "C" {
 #define PLAYER_IDLE_ACCEL_SIDES 2000
 
 #define PLAYER_GUN_RANGE 150
-#define PLAYER_FIRE_INTERVAL 0.07
+#define PLAYER_FIRE_INTERVAL 0.08
 #define MAX_BULLETS 16
 #define BULLET_SIZE { 4, 10 }
 #define BULLET_SPEED 500
+#define RIFLE_BULLETS_PER_PICKUP 50
 
 
 // enemy stats
@@ -85,14 +87,15 @@ extern "C" {
 #define CIVILIAN_ACCEL_SIDES 1000
 
 
-// NPC spawning
+// NPC & powerup spawning
 
 // this is a hard limit that cannot be exceeded
 #define MAX_NPCS 16
-#define NPC_SPAWN_TICK_INTERVAL 0.5
+#define OBJECT_SPAWN_TICK_INTERVAL 0.5
+#define POWERUP_SPAWN_CHANCE 0.05
 
 // NPCs further than this from the center of the screen are deleted
-#define NPC_DELETE_DISTANCE SCREEN_HEIGHT
+#define OBJECT_DELETE_DISTANCE SCREEN_HEIGHT
 
 enum NPCType
 {
@@ -388,6 +391,7 @@ enum BitmapData
 	BMP_EXPLOSION_0,
 	BMP_EXPLOSION_1,
 	BMP_BULLET,
+	BMP_RIFLE,
 	BMP_BACKGROUND,
 	BMP_COUNT
 };
@@ -405,6 +409,7 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_0], "./sprites/explosion_0.bmp");
 	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_1], "./sprites/explosion_1.bmp");
 	error |= !LoadBitmap(&bmps[BMP_BULLET], "./sprites/bullet.bmp");
+	error |= !LoadBitmap(&bmps[BMP_RIFLE], "./sprites/gun.bmp");
 	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/grass.bmp");
 
 	if (error)
@@ -412,21 +417,6 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 
 	SDL_SetColorKey(bmps[BMP_CHARSET], true, 0x000000);
 	return true;
-}
-
-
-
-
-
-//////////////////////////////////////////////////////////////////////////////////////
-// MEMORY MANAGEMENT
-
-void FreeBitmaps(SDL_Surface** bmps)
-{
-	for (int i = 0; i < BMP_COUNT; i++)
-	{
-		SDL_FreeSurface(bmps[i]);
-	}
 }
 
 
@@ -501,6 +491,7 @@ public:
 	int score = 0;
 	int lifeScoreCounter = 0;
 	int lives = 0;
+	int rifleAmmo = 0;
 };
 
 class NPC : public Car
@@ -508,6 +499,12 @@ class NPC : public Car
 public:
 	NPCType type = ENEMY;
 	int health = 0;
+};
+
+class Bullet : public GameObject
+{
+public:
+	Vector2 speed = {};
 };
 
 struct GameData
@@ -518,13 +515,44 @@ struct GameData
 	Player* player = NULL;
 	int npcCount = 0;
 	NPC* npcs[MAX_NPCS] = {};
-	GameObject* bullets[MAX_BULLETS] = {};
+	Bullet* bullets[MAX_BULLETS] = {};
+	GameObject* riflePowerup = NULL;
 
 	GameObject* background = NULL;
 
 	// NPC spawning
-	double nextNPCSpawnTick = 0;
+	double nextObjectSpawnTick = 0;
 };
+
+
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+// MEMORY MANAGEMENT
+
+void FreeBitmaps(SDL_Surface** bmps)
+{
+	for (int i = 0; i < BMP_COUNT; i++)
+	{
+		SDL_FreeSurface(bmps[i]);
+	}
+}
+
+void FreeGameMemory(GameData* gameData)
+{
+	delete gameData->background;
+	delete gameData->player;
+
+	for (int i = 0; i < MAX_BULLETS; i++)
+	{
+		delete gameData->bullets[i];
+	}
+	for (int i = 0; i < gameData->npcCount; i++)
+	{
+		delete gameData->npcs[i];
+	}
+}
 
 
 
@@ -645,7 +673,7 @@ void PlayerSteering(Player* player, Time time, Input* input)
 	MoveTowards(&player->position.y, PLAYER_Y_POS, time.delta * PLAYER_START_SPEED);
 }
 
-void PlayerShoot(GameObject* bullets[MAX_BULLETS], Vector2 pos)
+void PlayerShoot(Bullet* bullets[MAX_BULLETS], Vector2 pos, Vector2 speed)
 {
 	for (int i = 0; i < MAX_BULLETS; i++)
 	{
@@ -653,39 +681,33 @@ void PlayerShoot(GameObject* bullets[MAX_BULLETS], Vector2 pos)
 		{
 			bullets[i]->visible = true;
 			bullets[i]->position = pos;
+			bullets[i]->speed = speed;
 			break;
 		}
 	}
-
-	/*Player* player = gameData->player;
-	for (int i = 0; i < gameData->npcCount; i++)
-	{
-		NPC* npc = gameData->npcs[i];
-		if (npc->position.y < player->position.y &&
-			npc->position.y > player->position.y - PLAYER_GUN_RANGE &&
-			fabs(npc->position.x - player->position.x) <= player->size.x)
-		{
-			npc->health--;
-			if (npc->health <= 0)
-			{
-				KillCar(npc, time);
-			}
-		}
-	}*/
 }
 void PlayerShooting(GameData* gameData, Time time, Input* input)
 {
 	if (input->shoot && gameData->player->nextShootTime <= time.gametime)
 	{
-		gameData->player->nextShootTime = time.gametime + PLAYER_FIRE_INTERVAL;
+		Vector2 speed = { 0, -BULLET_SPEED };
+		if (gameData->player->rifleAmmo > 0)
+		{
+			gameData->player->nextShootTime = time.gametime + PLAYER_FIRE_INTERVAL / 2;
+			speed.y *= 2;
+		}
+		else
+			gameData->player->nextShootTime = time.gametime + PLAYER_FIRE_INTERVAL;
 
-		PlayerShoot(gameData->bullets, gameData->player->position);
+		PlayerShoot(gameData->bullets, gameData->player->position, speed);
+
+		gameData->player->rifleAmmo--;
 	}
 }
 
 void AddScore(int points, Player* player, Time time)
 {
-	if (player->scorePenalty <= time.gametime)
+	if (player->scorePenalty <= time.gametime && !player->IsDead())
 	{
 		player->score += points;
 
@@ -780,11 +802,11 @@ double GetRandomPosOnRoad()
 {
 	return RandRange(SCREEN_WIDTH * 0.3, SCREEN_WIDTH * 0.7);
 }
-void NPCSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
+void ObjectSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 {
-	if (gameData->nextNPCSpawnTick <= time.gametime)
+	if (gameData->nextObjectSpawnTick <= time.gametime)
 	{
-		gameData->nextNPCSpawnTick = time.gametime + NPC_SPAWN_TICK_INTERVAL;
+		gameData->nextObjectSpawnTick = time.gametime + OBJECT_SPAWN_TICK_INTERVAL;
 
 		if (RandVal() < (1.0 / (__max(gameData->npcCount, 1))))
 		{
@@ -794,11 +816,19 @@ void NPCSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 				 type = CIVILIAN;
 			}
 
-			CreateNPC(gameData, bitmaps, { GetRandomPosOnRoad() , -20 }, type);
+			CreateNPC(gameData, bitmaps, { GetRandomPosOnRoad(), -20 }, type);
+		}
+
+		if (RandVal() < POWERUP_SPAWN_CHANCE)
+		{
+			if (!gameData->riflePowerup->visible)
+			{
+				gameData->riflePowerup->visible = true;
+				gameData->riflePowerup->position = { GetRandomPosOnRoad(), -20 };
+			}
 		}
 	}
 }
-
 
 
 Vector2 CalculateOverlap(GameObject* go1, GameObject* go2)
@@ -952,7 +982,7 @@ void UpdateNPCs(Time time, GameData* gameData)
 
 			DeleteNPC(gameData, i);
 		}
-		else if (fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= NPC_DELETE_DISTANCE)
+		else if (fabs(gameData->npcs[i]->position.y - SCREEN_HEIGHT / 2) >= OBJECT_DELETE_DISTANCE)
 		{
 			DeleteNPC(gameData, i);
 		}
@@ -965,7 +995,8 @@ void UpdateBullets(Time time, GameData* gameData)
 	{
 		if (!gameData->bullets[i]->visible) continue;
 
-		gameData->bullets[i]->position.y -= time.delta * BULLET_SPEED;
+		gameData->bullets[i]->position.x += time.delta * gameData->bullets[i]->speed.x;
+		gameData->bullets[i]->position.y += time.delta * gameData->bullets[i]->speed.y;
 
 		for (int j = 0; j < gameData->npcCount; j++)
 		{
@@ -980,6 +1011,23 @@ void UpdateBullets(Time time, GameData* gameData)
 		{
 			gameData->bullets[i]->visible = false;
 		}
+	}
+}
+void UpdatePowerup(Time time, Player* player, GameObject* powerup)
+{
+	if (!powerup->visible) return;
+
+	powerup->position.y -= time.delta * player->speed.y * 0.5;
+
+	if (!player->IsDead() && IsOverlapping(player, powerup))
+	{
+		player->rifleAmmo = RIFLE_BULLETS_PER_PICKUP;
+		powerup->visible = false;
+	}
+	
+	if (fabs(powerup->position.y - SCREEN_HEIGHT / 2) >= OBJECT_DELETE_DISTANCE)
+	{
+		powerup->visible = false;
 	}
 }
 
@@ -1005,12 +1053,19 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 
 	for (int i = 0; i < MAX_BULLETS; i++)
 	{
-		GameObject* bullet = new GameObject();
+		Bullet* bullet = new Bullet();
 		bullet->visible = false;
 		bullet->sprite = bitmaps[BMP_BULLET];
 		bullet->size = BULLET_SIZE;
 		gameData->bullets[i] = bullet;
 	}
+
+	GameObject* powerup = new GameObject();
+	powerup->position = {};
+	powerup->visible = false;
+	powerup->sprite = bitmaps[BMP_RIFLE];
+	powerup->size = POWERUP_SIZE;
+	gameData->riflePowerup = powerup;
 }
 
 void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
@@ -1018,9 +1073,10 @@ void GameUpdate(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* inp
 	UpdatePlayer(time, gameData, bitmaps, input);
 	UpdateNPCs(time, gameData);
 	UpdateBullets(time, gameData);
+	UpdatePowerup(time, gameData->player, gameData->riflePowerup);
 
 	if (!gameData->player->IsDead())
-		NPCSpawning(gameData, bitmaps, time);
+		ObjectSpawning(gameData, bitmaps, time);
 
 	ResolveCollisions(gameData, time);
 }
@@ -1172,7 +1228,7 @@ bool AddScoreToLeaderboard(Leaderboard* leaderboard, Highscore score)
 		leaderboard->highscores = (Highscore*)realloc(leaderboard->highscores, sizeof(Highscore) * leaderboard->arrayCapacity);
 		if (leaderboard->highscores == NULL)
 		{
-			printf("Ran out of memory when saving the highscore!\n");
+			printf("Ran out of memory when adding the highscore!\n");
 			return false;
 		}
 	}
@@ -1212,6 +1268,11 @@ bool LoadLeaderboard(Leaderboard* leaderboard)
 
 	char stringBuffer[STRING_BUFFER_SIZE] = "";
 	FILE* file = fopen(HIGHSCORES_FILE, "r");
+	if (file == NULL) // file doesn't exist
+	{
+		file = fopen(HIGHSCORES_FILE, "w");
+		file = freopen(HIGHSCORES_FILE, "r", file);
+	}
 
 	while (fgets(stringBuffer, STRING_BUFFER_SIZE, file))
 	{
@@ -1240,8 +1301,8 @@ bool LoadLeaderboard(Leaderboard* leaderboard)
 void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 {
 	gameData->background->Draw(screen);
-
 	gameData->player->Draw(screen);
+	gameData->riflePowerup->Draw(screen);
 
 	for (int i = 0; i < gameData->npcCount; i++)
 	{
@@ -1256,6 +1317,8 @@ void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 
 void DrawLeaderboard(SDL_Surface* screen, Leaderboard leaderboard, SDL_Surface* charset, char* stringBuffer)
 {
+	if (leaderboard.scoreCount == 0) return;
+
 	DrawString(screen, { 5,-90 }, "Highscores:", charset, MIDDLE_LEFT);
 	if (leaderboard.sortMode == SORT_BY_SCORE)
 		DrawString(screen, { 5,-78 }, "(Sorted by score)", charset, MIDDLE_LEFT);
@@ -1288,10 +1351,16 @@ void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, Leaderboard lead
 			DrawString(screen, { 0,50 }, stringBuffer, charset, UPPER_CENTER);
 		}
 		else
-			DrawString(screen, { 0,50 }, "Lives: INF", charset, UPPER_CENTER);
-		
+			DrawString(screen, { 0,50 }, "Lives: INFINITE", charset, UPPER_CENTER);
+
 		if (gameData->player->scorePenalty > time.gametime)
 			DrawString(screen, { 0,-20 }, "No points!", charset, LOWER_CENTER);
+
+		if (gameData->player->rifleAmmo > 0)
+		{
+			sprintf(stringBuffer, "AMMO: %d", gameData->player->rifleAmmo);
+			DrawString(screen, { -30,0 }, stringBuffer, charset, MIDDLE_RIGHT);
+		}
 	}
 	else
 	{
@@ -1445,9 +1514,11 @@ int main(int argc, char** argv)
 			
 			time.frames++;
 		}
+
+		FreeGameMemory(&gameData);
 	}
 
-	// freeing all surfaces
+	// free all surfaces
 	FreeBitmaps(bitmaps);
 	SDL_FreeSurface(screen);
 	SDL_DestroyTexture(scrtex);
