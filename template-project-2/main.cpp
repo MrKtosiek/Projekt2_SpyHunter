@@ -7,13 +7,14 @@
 extern "C" {
 #include"./SDL2-2.0.10/include/SDL.h"
 #include"./SDL2-2.0.10/include/SDL_main.h"
+#include <time.h>
 }
 
 
-#define FULLSCREEN true
+#define FULLSCREEN false
 #define WINDOW_TITLE "Filip Jezierski 196333"
-#define SCREEN_WIDTH 480
-#define SCREEN_HEIGHT 320
+#define SCREEN_WIDTH 640
+#define SCREEN_HEIGHT 480
 
 #define FPS_LIMIT 144 // set to -1 for unlimited FPS
 #define FPS_COUNTER_INTERVAL 0.1
@@ -27,12 +28,15 @@ extern "C" {
 #define LEADERBOARD_SCROLL_DELAY 0.02
 
 
+#define ROAD_EDGE_SEGMENTS 7
+
+
 //////////////////////////////////////////////////////////////////////////////////////
 // GAMEPLAY CONSTANTS
 
 #define CAR_SIZE { 14, 20 }
 #define POWERUP_SIZE { 32, 32 }
-#define PLAYER_Y_POS 200
+#define PLAYER_Y_POS SCREEN_HEIGHT * 0.7
 
 // the player is given SCORE_PER_DISTANCE points per each DISTANCE_TO_SCORE travelled
 #define SCORE_PER_ENEMY_KILL 300
@@ -83,19 +87,37 @@ extern "C" {
 // civilian stats
 #define CIVILIAN_HP 2
 #define CIVILIAN_SPEED 500
+#define CIVILIAN_SPEED_SIDES 500
 #define CIVILIAN_ACCEL 400
 #define CIVILIAN_ACCEL_SIDES 1000
 
+
+#define NPC_EDGE_DISTANCE 40
 
 // NPC & powerup spawning
 
 // this is a hard limit that cannot be exceeded
 #define MAX_NPCS 16
 #define OBJECT_SPAWN_TICK_INTERVAL 0.5
-#define POWERUP_SPAWN_CHANCE 0.05
+#define OBJECT_SPAWN_MARGIN 20 // objects are spawned this far above the screen edge
+#define POWERUP_SPAWN_CHANCE 0.1
 
 // NPCs further than this from the center of the screen are deleted
 #define OBJECT_DELETE_DISTANCE SCREEN_HEIGHT
+
+
+//////////////////////////////////////////////////////////////////////////////////////
+// ROAD GENERATION CONSTANTS
+
+#define ROAD_EDGE_WIDTH 600
+#define ROAD_BEND_FREQUENCY 0.0001
+#define ROAD_CENTER_VARIATION 100
+#define ROAD_WIDTH_FREQUENCY 0.0003
+#define ROAD_MIN_WIDTH 100
+#define ROAD_MAX_WIDTH 300
+
+
+
 
 enum NPCType
 {
@@ -393,6 +415,7 @@ enum BitmapData
 	BMP_BULLET,
 	BMP_RIFLE,
 	BMP_BACKGROUND,
+	BMP_ROAD_EDGE,
 	BMP_COUNT
 };
 
@@ -410,7 +433,8 @@ bool LoadAllBitmaps(SDL_Surface** bmps)
 	error |= !LoadBitmap(&bmps[BMP_EXPLOSION_1], "./sprites/explosion_1.bmp");
 	error |= !LoadBitmap(&bmps[BMP_BULLET], "./sprites/bullet.bmp");
 	error |= !LoadBitmap(&bmps[BMP_RIFLE], "./sprites/gun.bmp");
-	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/grass.bmp");
+	error |= !LoadBitmap(&bmps[BMP_BACKGROUND], "./sprites/background.bmp");
+	error |= !LoadBitmap(&bmps[BMP_ROAD_EDGE], "./sprites/road_edge.bmp");
 
 	if (error)
 		return false;
@@ -518,7 +542,8 @@ struct GameData
 	Bullet* bullets[MAX_BULLETS] = {};
 	GameObject* riflePowerup = NULL;
 
-	GameObject* background = NULL;
+	GameObject* background = NULL; 
+	GameObject* roadEdgeSegments[ROAD_EDGE_SEGMENTS * 2] = {};
 
 	// NPC spawning
 	double nextObjectSpawnTick = 0;
@@ -559,22 +584,45 @@ void FreeGameMemory(GameData* gameData)
 
 
 //////////////////////////////////////////////////////////////////////////////////////
+// ROAD SHAPE GENERATION
+
+// returns a pseudo random value between -1 and 1
+double PseudoNoise(double x)
+{
+	return (sin(x * M_PI) + sin(x * 2)) * 0.5 * sin(x);
+}
+
+double GetRoadCenter(double distance)
+{
+	return PseudoNoise(distance * ROAD_BEND_FREQUENCY) * ROAD_CENTER_VARIATION;
+}
+double GetRoadWidth(double distance)
+{
+	return ROAD_MIN_WIDTH + (PseudoNoise(distance * ROAD_WIDTH_FREQUENCY) + 1) / 2 * (ROAD_MAX_WIDTH - ROAD_MIN_WIDTH);
+}
+
+double GetRoadEdgeLeft(double distance)
+{
+	return SCREEN_WIDTH / 2 + GetRoadCenter(distance) - GetRoadWidth(distance) * 0.5;
+}
+double GetRoadEdgeRight(double distance)
+{
+	return SCREEN_WIDTH / 2 + GetRoadCenter(distance) + GetRoadWidth(distance) * 0.5;
+}
+
+bool IsOnRoad(Vector2 pos, double distance)
+{
+	if (GetRoadEdgeLeft(distance - pos.y) > pos.x || GetRoadEdgeRight(distance - pos.y) < pos.x)
+	{
+		return false;
+	}
+	return true;
+}
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////
 // GAME MECHANICS
-
-
-bool IsOnRoad(Vector2 pos)
-{
-	if (pos.x > SCREEN_WIDTH * 0.25 &&
-		pos.x < SCREEN_WIDTH * 0.75)
-		return true;
-
-	return false;
-}
-
-double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
-{
-	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
-}
 
 
 void CreateNPC(GameData* gameData, SDL_Surface** bitmaps, Vector2 pos, NPCType type)
@@ -648,6 +696,11 @@ void DamageNPC(int damage, NPC* npc, Time time)
 	}
 }
 
+double CalculateMaxSideSpeed(double forwardSpeed, double maxForwardSpeed, double maxSideSpeed)
+{
+	return (forwardSpeed / maxForwardSpeed) * maxSideSpeed;
+}
+
 void PlayerSteering(Player* player, Time time, Input* input)
 {
 	// convert input into a direction vector
@@ -671,6 +724,7 @@ void PlayerSteering(Player* player, Time time, Input* input)
 	// the player doesn't move along the y axis, the rest of the world does
 	player->position.x += player->speed.x * time.delta;
 	MoveTowards(&player->position.y, PLAYER_Y_POS, time.delta * PLAYER_START_SPEED);
+	player->distanceCounter -= player->speed.y * time.delta;
 }
 
 void PlayerShoot(Bullet* bullets[MAX_BULLETS], Vector2 pos, Vector2 speed)
@@ -745,21 +799,34 @@ void EnemyAI(NPC* npc, Player* player, Time time)
 	}
 	else
 	{
+		// avoid road edges
+		if (!IsOnRoad({npc->position.x + NPC_EDGE_DISTANCE, npc->position.y}, player->distanceCounter))
+			MoveTowards(&npc->speed.x, -ENEMY_MAX_SPEED_SIDES, time.delta * ENEMY_ACCEL_SIDES);
+		else if (!IsOnRoad({ npc->position.x - NPC_EDGE_DISTANCE, npc->position.y }, player->distanceCounter))
+			MoveTowards(&npc->speed.x, ENEMY_MAX_SPEED_SIDES, time.delta * ENEMY_ACCEL_SIDES);
+		else
+			MoveTowards(&npc->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
+
 		// catch up or wait for the player
 		if (npc->position.y < player->position.y)
 			MoveTowards(&npc->speed.y, player->speed.y + ENEMY_BRAKING, time.delta * ENEMY_ACCEL);
 		else
 			MoveTowards(&npc->speed.y, -ENEMY_MAX_SPEED, time.delta * ENEMY_ACCEL);
-
-		MoveTowards(&npc->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
 	}
 
 
 	npc->speed.y = Clamp(npc->speed.y, -ENEMY_MAX_SPEED, -ENEMY_MIN_SPEED);
 }
-void CivilianAI(NPC* npc, Time time)
+void CivilianAI(NPC* npc, Time time, double distance)
 {
-	MoveTowards(&npc->speed.x, 0, time.delta * CIVILIAN_ACCEL_SIDES);
+	// avoid road edges
+	if (!IsOnRoad({ npc->position.x + NPC_EDGE_DISTANCE, npc->position.y }, distance))
+		MoveTowards(&npc->speed.x, -ENEMY_MAX_SPEED_SIDES, time.delta * ENEMY_ACCEL_SIDES);
+	else if (!IsOnRoad({ npc->position.x - NPC_EDGE_DISTANCE, npc->position.y }, distance))
+		MoveTowards(&npc->speed.x, ENEMY_MAX_SPEED_SIDES, time.delta * ENEMY_ACCEL_SIDES);
+	else
+		MoveTowards(&npc->speed.x, 0, time.delta * ENEMY_ACCEL_SIDES);
+
 	MoveTowards(&npc->speed.y, -CIVILIAN_SPEED, time.delta * CIVILIAN_ACCEL);
 }
 void UpdateNPC(NPC* npc, Player* player, Time time)
@@ -772,7 +839,7 @@ void UpdateNPC(NPC* npc, Player* player, Time time)
 			EnemyAI(npc, player, time);
 			break;
 		case CIVILIAN:
-			CivilianAI(npc, time);
+			CivilianAI(npc, time, player->distanceCounter);
 			break;
 		default:
 			break;
@@ -789,18 +856,32 @@ void UpdateNPC(NPC* npc, Player* player, Time time)
 }
 
 
-void MoveBackground(GameObject* background, double playerSpeed, Time time)
+void MoveRoad(GameObject* roadEdgeSegments[ROAD_EDGE_SEGMENTS * 2], GameObject* background, double playerSpeed, double distance, Time time)
 {
-	background->position.y -= playerSpeed * (double)time.delta;
+	background->position.y -= playerSpeed * time.delta;
 	if (background->position.y > SCREEN_HEIGHT)
 		background->position.y = 0;
+
+	for (int i = 0; i < ROAD_EDGE_SEGMENTS * 2; i++)
+	{
+		roadEdgeSegments[i]->position.y -= playerSpeed * (double)time.delta;
+		double halfOfSegment = SCREEN_HEIGHT / ((ROAD_EDGE_SEGMENTS - 1) * 2);
+		if (roadEdgeSegments[i]->position.y > SCREEN_HEIGHT + halfOfSegment)
+		{
+			roadEdgeSegments[i]->position.y -= SCREEN_HEIGHT + halfOfSegment * 2;
+			if (i % 2)
+				roadEdgeSegments[i]->position.x = GetRoadEdgeRight(distance) + ROAD_EDGE_WIDTH / 2;
+			else
+				roadEdgeSegments[i]->position.x = GetRoadEdgeLeft(distance) - ROAD_EDGE_WIDTH / 2;
+		}
+	}
 }
 
 
 
-double GetRandomPosOnRoad()
+double GetRandomSpawnPos(double distance)
 {
-	return RandRange(SCREEN_WIDTH * 0.3, SCREEN_WIDTH * 0.7);
+	return RandRange(GetRoadEdgeLeft(distance + OBJECT_SPAWN_MARGIN), GetRoadEdgeRight(distance + OBJECT_SPAWN_MARGIN));
 }
 void ObjectSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 {
@@ -816,7 +897,7 @@ void ObjectSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 				 type = CIVILIAN;
 			}
 
-			CreateNPC(gameData, bitmaps, { GetRandomPosOnRoad(), -20 }, type);
+			CreateNPC(gameData, bitmaps, { GetRandomSpawnPos(gameData->player->distanceCounter), -OBJECT_SPAWN_MARGIN }, type);
 		}
 
 		if (RandVal() < POWERUP_SPAWN_CHANCE)
@@ -824,7 +905,7 @@ void ObjectSpawning(GameData* gameData, SDL_Surface** bitmaps, Time time)
 			if (!gameData->riflePowerup->visible)
 			{
 				gameData->riflePowerup->visible = true;
-				gameData->riflePowerup->position = { GetRandomPosOnRoad(), -20 };
+				gameData->riflePowerup->position = { GetRandomSpawnPos(gameData->player->distanceCounter), -OBJECT_SPAWN_MARGIN };
 			}
 		}
 	}
@@ -923,7 +1004,7 @@ void RespawnPlayer(GameData* gameData, SDL_Surface** bitmaps)
 
 void UpdatePlayer(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* input)
 {
-	if (!IsOnRoad(gameData->player->position))
+	if (!IsOnRoad(gameData->player->position, gameData->player->distanceCounter))
 		KillCar(gameData->player, time);
 
 	if (!gameData->player->IsDead())
@@ -931,7 +1012,7 @@ void UpdatePlayer(Time time, GameData* gameData, SDL_Surface** bitmaps, Input* i
 		PlayerSteering(gameData->player, time, input);
 		PlayerShooting(gameData, time, input);
 
-		MoveBackground(gameData->background, gameData->player->speed.y, time);
+		MoveRoad(gameData->roadEdgeSegments, gameData->background, gameData->player->speed.y, gameData->player->distanceCounter, time);
 
 		CountScorePerDistance(gameData->player, time);
 
@@ -963,7 +1044,7 @@ void UpdateNPCs(Time time, GameData* gameData)
 	{
 		UpdateNPC(gameData->npcs[i], gameData->player, time);
 
-		if (!IsOnRoad(gameData->npcs[i]->position))
+		if (!IsOnRoad(gameData->npcs[i]->position, gameData->player->distanceCounter))
 			KillCar(gameData->npcs[i], time);
 
 		if (gameData->npcs[i]->AnimateDeath(time))
@@ -1017,7 +1098,7 @@ void UpdatePowerup(Time time, Player* player, GameObject* powerup)
 {
 	if (!powerup->visible) return;
 
-	powerup->position.y -= time.delta * player->speed.y * 0.5;
+	powerup->position.y -= time.delta * player->speed.y;
 
 	if (!player->IsDead() && IsOverlapping(player, powerup))
 	{
@@ -1040,6 +1121,16 @@ void GameStart(GameData* gameData, SDL_Surface** bitmaps)
 	background->sprite = bitmaps[BMP_BACKGROUND];
 	background->position = { SCREEN_WIDTH / 2, 0 };
 	gameData->background = background;
+
+	for (int i = 0; i < ROAD_EDGE_SEGMENTS * 2; i++)
+	{
+		GameObject* edge = new GameObject();
+		edge->sprite = bitmaps[BMP_ROAD_EDGE];
+		double x = SCREEN_WIDTH / 2 - ROAD_MIN_WIDTH - ROAD_EDGE_WIDTH / 2 + (i % 2) * (2 * (ROAD_MIN_WIDTH)+ROAD_EDGE_WIDTH);
+		double y = ((i / 2) * SCREEN_HEIGHT / (ROAD_EDGE_SEGMENTS - 1));
+		edge->position = { x,y };
+		gameData->roadEdgeSegments[i] = edge;
+	}
 
 	Player* player = new Player();
 	player->sprite = bitmaps[BMP_PLAYER_CAR];
@@ -1133,7 +1224,6 @@ void MeasureTime(Time* time)
 		time->fpsTimer = 0;
 	}
 }
-
 
 
 
@@ -1301,6 +1391,10 @@ bool LoadLeaderboard(Leaderboard* leaderboard)
 void DrawGameObjects(SDL_Surface* screen, GameData* gameData)
 {
 	gameData->background->Draw(screen);
+	for (int i = 0; i < ROAD_EDGE_SEGMENTS * 2; i++)
+	{
+		gameData->roadEdgeSegments[i]->Draw(screen);
+	}
 	gameData->player->Draw(screen);
 	gameData->riflePowerup->Draw(screen);
 
@@ -1324,6 +1418,7 @@ void DrawLeaderboard(SDL_Surface* screen, Leaderboard leaderboard, SDL_Surface* 
 		DrawString(screen, { 5,-78 }, "(Sorted by score)", charset, MIDDLE_LEFT);
 	else
 		DrawString(screen, { 5,-78 }, "(Sorted by time)", charset, MIDDLE_LEFT);
+	DrawString(screen, { 2,-65 }, "       Time  Score", charset, MIDDLE_LEFT);
 	for (int i = 0; 
 		i < LEADERBOARD_LENGTH &&
 		i + leaderboard.displayOffset < leaderboard.scoreCount;
@@ -1331,7 +1426,7 @@ void DrawLeaderboard(SDL_Surface* screen, Leaderboard leaderboard, SDL_Surface* 
 	{
 		int index = i + leaderboard.displayOffset;
 		sprintf(stringBuffer, "%3d.%7.2f %6.0d", index + 1, leaderboard.highscores[index].time * 0.001, leaderboard.highscores[index].score);
-		DrawString(screen, { 2,(double)(-65 + i * 10) }, stringBuffer, charset, MIDDLE_LEFT);
+		DrawString(screen, { 2,(double)(-50 + i * 10) }, stringBuffer, charset, MIDDLE_LEFT);
 	}
 }
 void DrawUI(SDL_Surface* screen, GameData* gameData, Time time, Leaderboard leaderboard, SDL_Surface* charset, char* stringBuffer)
@@ -1403,6 +1498,7 @@ extern "C"
 int main(int argc, char** argv)
 {
 	printf("printf output goes here:\n");
+	srand(time(NULL));
 
 	char stringBuffer[STRING_BUFFER_SIZE] = {};
 	int quit = 0;
