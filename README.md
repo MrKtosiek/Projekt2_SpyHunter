@@ -1,2 +1,2 @@
 # Programming Basics - Spy Hunter
-University project
+Arcade game project using SDL2 for visuals.
